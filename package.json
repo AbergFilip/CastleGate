@@ -1,0 +1,38 @@
+{
+  "name": "castlegate",
+  "version": "0.1.0",
+  "description": "CastleGate - Virtually Me - Central Hub för digital livskontroll",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:mobile\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:mobile": "cd mobile && npm start",
+    "dev:web": "cd web && npm run dev",
+    "build": "npm run build:backend && npm run build:mobile && npm run build:web",
+    "build:backend": "cd backend && npm run build",
+    "build:mobile": "cd mobile && npm run build",
+    "build:web": "cd web && npm run build",
+    "install:all": "npm install && cd backend && npm install && cd ../mobile && npm install && cd ../web && npm install",
+    "test": "npm run test:backend && npm run test:mobile",
+    "test:backend": "cd backend && npm test",
+    "test:mobile": "cd mobile && npm test"
+  },
+  "keywords": [
+    "blockchain",
+    "digital-identity",
+    "data-sovereignty",
+    "crypto",
+    "mobile-app"
+  ],
+  "author": "CastleGate",
+  "license": "PROPRIETARY",
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  },
+  "workspaces": [
+    "backend",
+    "mobile",
+    "web"
+  ]
+}
+
