@@ -117,7 +117,7 @@ export const documentsApi = {
       }
     }
     
-    // Create blob with correct MIME type
+    // Create blob with explicit MIME type
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
     
