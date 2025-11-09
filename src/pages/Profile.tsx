@@ -1,62 +1,69 @@
 import { Link } from 'react-router-dom'
+import { HomeIcon } from '../components/Icons'
 
 function Profile() {
+  const menuItems = [
+    { title: 'Dokument i livet', description: 'Hantera dina dokument', path: '/documents' },
+    { title: 'Egendomar', description: 'Fordon, fastigheter och mer', path: '/properties' },
+    { title: 'Nätverk', description: 'Relationer och kontakter', path: '/network' },
+  ]
+
   return (
-    <div className="page-container">
-      <div className="flex flex-col px-4 py-6">
-        <div className="flex items-center mb-6">
-          <div className="w-20 h-20 bg-primary rounded-full flex items-center justify-center mr-4">
-            <span className="text-4xl text-white">👤</span>
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-text">Min profil</h1>
-            <p className="text-gray-600">filip_aberg</p>
-          </div>
-        </div>
+    <div style={{ background: '#F4F6FF', minHeight: '100vh', padding: '32px 16px 120px' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '24px' }}>
+        <h1
+          style={{
+            fontFamily: 'HK Grotesk Pro, Roboto, sans-serif',
+            fontWeight: 700,
+            fontSize: '22px',
+            color: '#2A2A2A',
+            margin: 0,
+          }}
+        >
+          Meny
+        </h1>
+      </div>
 
-        <div className="space-y-4">
-          <Link 
-            to="/documents"
-            className="bg-white border border-gray-200 rounded-lg p-4 shadow-card block"
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {menuItems.map((item) => (
+          <Link
+            key={item.title}
+            to={item.path}
+            style={{
+              background: '#FFFFFF',
+              borderRadius: '16px',
+              boxShadow: '0px 8px 24px rgba(20, 45, 120, 0.08)',
+              padding: '18px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              textDecoration: 'none',
+            }}
           >
-            <h2 className="font-semibold mb-2 text-text">Dokument i livet</h2>
-            <p className="text-sm text-gray-600">Hantera dina dokument</p>
-          </Link>
-
-          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-card">
-            <h2 className="font-semibold mb-2 text-text">Personlig information</h2>
-            <p className="text-sm text-gray-600">Hantera dina personuppgifter</p>
-          </div>
-
-          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-card">
-            <h2 className="font-semibold mb-2 text-text">Säkerhet</h2>
-            <p className="text-sm text-gray-600">Lösenord och tvåfaktorsautentisering</p>
-          </div>
-
-          <Link 
-            to="/properties"
-            className="bg-white border border-gray-200 rounded-lg p-4 shadow-card block"
-          >
-            <h2 className="font-semibold mb-2 text-text">Mina egendomar</h2>
-            <p className="text-sm text-gray-600">Fordon, fastigheter och mer</p>
-          </Link>
-
-          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-card">
-            <h2 className="font-semibold mb-2 text-text">Relationer</h2>
-            <p className="text-sm text-gray-600">Hantera ditt nätverk</p>
-          </div>
-
-          <Link 
-            to="/settings" 
-            className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-4 shadow-card"
-          >
-            <div className="flex items-center">
-              <span className="text-xl mr-3">⚙️</span>
-              <span className="font-semibold text-text">Inställningar</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div
+                style={{
+                  width: '52px',
+                  height: '52px',
+                  background: '#DEEDF4',
+                  borderRadius: '14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <HomeIcon width={24} height={24} color='#1A7498' />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <span style={{ fontFamily: 'HK Grotesk Pro, Roboto, sans-serif', fontWeight: 600, fontSize: '16px', color: '#2A2A2A' }}>{item.title}</span>
+                <span style={{ fontFamily: 'Roboto, sans-serif', fontSize: '13px', color: '#2A2A2A', opacity: 0.7 }}>{item.description}</span>
+              </div>
             </div>
-            <span className="text-gray-400">›</span>
+            <svg width='6' height='12' viewBox='0 0 6 12' fill='none'>
+              <path d='M1 1L5 6L1 11' stroke='#1A7498' strokeWidth='2' strokeLinecap='round' />
+            </svg>
           </Link>
-        </div>
+        ))}
       </div>
     </div>
   )
