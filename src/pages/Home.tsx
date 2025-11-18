@@ -49,7 +49,7 @@ function Home() {
             left: '0px',
             right: '0px',
             zIndex: 1,
-            overflow: 'hidden'
+            overflow: 'visible'
           }}
         >
           <svg 
@@ -102,11 +102,14 @@ function Home() {
               lineHeight: '29px',
               textAlign: 'center',
               color: '#FFFFFF',
-              margin: 0
+              margin: 0,
+              zIndex: 10
             }}
           >
             Ekonomi
           </h2>
+
+
 
           {/* Sök field */}
           <div 

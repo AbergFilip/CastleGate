@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { useEffect } from 'react'
-import { HomeIcon } from './Icons'
+import { HomeIcon, UserIcon } from './Icons'
 
 interface MenuProps {
   isOpen: boolean
@@ -20,58 +20,111 @@ function Menu({ isOpen, onClose }: MenuProps) {
   }, [isOpen])
 
   const menuItems = [
-    { path: '/documents', title: 'Dokument i livet', description: 'Hantera dina dokument' },
-    { path: '/properties', title: 'Egendomar', description: 'Fordon, fastigheter och mer' },
-    { path: '/network', title: 'Nätverk', description: 'Relationer och kontakter' },
+    { path: '/profile', title: 'Min profil', description: 'Redigera din profil och logga ut', icon: UserIcon },
+    { path: '/documents', title: 'Dokument i livet', description: 'Hantera dina dokument', icon: HomeIcon },
+    { path: '/properties', title: 'Egendomar', description: 'Fordon, fastigheter och mer', icon: HomeIcon },
+    { path: '/network', title: 'Nätverk', description: 'Relationer och kontakter', icon: HomeIcon },
   ]
+
 
   if (!isOpen) return null
 
   return (
     <>
       <div
-        className="fixed inset-0 bg-black bg-opacity-30 z-40"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.3)',
+          zIndex: 40,
+        }}
         onClick={onClose}
       />
       <div
-        className="fixed top-0 right-0 h-full w-80 max-w-full z-50 shadow-2xl"
-        style={{ background: 'linear-gradient(180deg, #F4F6FF 0%, #FFFFFF 100%)' }}
+        style={{
+          position: 'fixed',
+          top: 0,
+          right: 0,
+          height: '100%',
+          width: '320px',
+          maxWidth: '100%',
+          zIndex: 50,
+          background: 'linear-gradient(180deg, #F4F6FF 0%, #FFFFFF 100%)',
+          boxShadow: '0px 0px 40px rgba(0, 0, 0, 0.3)',
+        }}
       >
-        <div className="flex flex-col h-full px-6 pt-8 pb-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-bold text-text">Meny</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '32px 24px 24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+            <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#2A2A2A', margin: 0 }}>Meny</h2>
             <button
               onClick={onClose}
-              className="w-10 h-10 flex items-center justify-center rounded-full bg-white shadow-card text-gray-500 hover:text-gray-800"
+              style={{
+                width: '40px',
+                height: '40px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '50%',
+                background: '#FFFFFF',
+                border: 'none',
+                boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.1)',
+                color: '#666666',
+                cursor: 'pointer',
+                fontSize: '24px',
+              }}
               aria-label="Stäng meny"
             >
-              <span className="text-2xl">✕</span>
+              ✕
             </button>
           </div>
 
-          <nav className="flex flex-col gap-4">
-            {menuItems.map((item) => (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={onClose}
-                className="flex items-center justify-between bg-white rounded-2xl shadow-card px-5 py-4"
-                style={{ textDecoration: 'none' }}
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 flex items-center justify-center rounded-xl" style={{ background: '#DEEDF4' }}>
-                    <HomeIcon width={24} height={24} color="#1A7498" />
+          <nav style={{ display: 'flex', flexDirection: 'column', gap: '16px', flex: 1, overflowY: 'auto' }}>
+            {menuItems.map((item, index) => {
+              const IconComponent = item.icon || HomeIcon
+              return (
+                <Link
+                  key={`menu-item-${item.path}-${index}`}
+                  to={item.path}
+                  onClick={onClose}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    background: '#FFFFFF',
+                    borderRadius: '16px',
+                    boxShadow: '0px 4px 24px rgba(0, 0, 0, 0.08)',
+                    padding: '18px 20px',
+                    textDecoration: 'none',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    <div
+                      style={{
+                        width: '48px',
+                        height: '48px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderRadius: '12px',
+                        background: '#DEEDF4',
+                      }}
+                    >
+                      <IconComponent width={24} height={24} color="#1A7498" />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <span style={{ fontSize: '16px', fontWeight: 600, color: '#2A2A2A' }}>{item.title}</span>
+                      <span style={{ fontSize: '13px', color: '#767676' }}>{item.description}</span>
+                    </div>
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <span className="font-semibold text-text" style={{ fontSize: '16px' }}>{item.title}</span>
-                    <span className="text-sm text-gray-500" style={{ fontSize: '13px' }}>{item.description}</span>
-                  </div>
-                </div>
-                <svg width="6" height="12" viewBox="0 0 6 12" fill="none">
-                  <path d="M1 1L5 6L1 11" stroke="#1A7498" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </Link>
-            ))}
+                  <svg width="6" height="12" viewBox="0 0 6 12" fill="none">
+                    <path d="M1 1L5 6L1 11" stroke="#1A7498" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                </Link>
+              )
+            })}
           </nav>
         </div>
       </div>

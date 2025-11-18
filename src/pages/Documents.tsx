@@ -72,7 +72,7 @@ function Documents() {
             zIndex: 3,
           }}
         >
-          <Link to="/" style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)' }}>
+          <Link to="/home" style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)' }}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
               <path d="M15 18L9 12L15 6" stroke="#FFFFFF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>

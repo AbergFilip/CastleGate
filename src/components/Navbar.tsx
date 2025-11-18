@@ -47,7 +47,7 @@ function Navbar() {
 
   const navItems = [
     { path: '/marketplace', label: 'Marknad', icon: CartIcon, isLink: true },
-    { path: '/', label: 'Ekonomi', icon: CardIcon, isLink: true },
+    { path: '/home', label: 'Ekonomi', icon: CardIcon, isLink: true },
     { path: '/mailbox', label: 'Brevlåda', icon: SendIcon, isLink: true },
     { path: '/notifications', label: 'Notiser', icon: NotificationsIcon, isLink: true },
     { path: '#', label: 'Meny', icon: MenuIcon, isLink: false },

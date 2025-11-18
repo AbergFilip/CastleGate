@@ -1,4 +1,5 @@
 import { ReactNode } from 'react'
+import { useLocation } from 'react-router-dom'
 import Navbar from './Navbar'
 
 interface LayoutProps {
@@ -6,6 +7,15 @@ interface LayoutProps {
 }
 
 function Layout({ children }: LayoutProps) {
+  const location = useLocation()
+  const hideNavbarPaths = ['/', '/onboarding']
+  const showNavbar = !hideNavbarPaths.includes(location.pathname)
+  const fullWidthPaths = ['/', '/onboarding']
+
+  if (fullWidthPaths.includes(location.pathname)) {
+    return <>{children}</>
+  }
+
   return (
     <div 
       className="relative min-h-screen"
@@ -28,13 +38,13 @@ function Layout({ children }: LayoutProps) {
           margin: '0 auto',
           boxShadow: '0 0 40px rgba(0, 0, 0, 0.1)',
           position: 'relative',
-          overflow: 'hidden'
+          overflowX: 'hidden'
         }}
       >
         <main style={{ width: '100%', minHeight: '100vh', position: 'relative' }}>
           {children}
         </main>
-        <Navbar />
+        {showNavbar && <Navbar />}
       </div>
     </div>
   )
