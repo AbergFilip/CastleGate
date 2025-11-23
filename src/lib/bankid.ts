@@ -163,7 +163,16 @@ export async function signUpWithBankID(bankIDData: {
   personalNumber: string
   name: string
   email?: string
-}): Promise<{ success: boolean; userId?: string; message?: string }> {
+}): Promise<{ 
+  success: boolean
+  userId?: string
+  email?: string
+  name?: string
+  token?: string
+  tokenHash?: string
+  actionLink?: string
+  message?: string 
+}> {
   const response = await fetch(`${API_BASE_URL}/signup`, {
     method: 'POST',
     headers: {
@@ -176,6 +185,39 @@ export async function signUpWithBankID(bankIDData: {
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: 'Ett fel uppstod' }))
     throw new Error(error.message || 'Kunde inte skapa konto med BankID')
+  }
+
+  return response.json()
+}
+
+/**
+ * Logga in med BankID
+ */
+export async function signInWithBankID(bankIDData: {
+  personalNumber: string
+  name: string
+}): Promise<{ 
+  success: boolean
+  userId?: string
+  email?: string
+  name?: string
+  token?: string
+  tokenHash?: string
+  actionLink?: string
+  message?: string 
+}> {
+  const response = await fetch(`${API_BASE_URL}/signin`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+    body: JSON.stringify(bankIDData),
+  })
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Ett fel uppstod' }))
+    throw new Error(error.message || 'Kunde inte logga in med BankID')
   }
 
   return response.json()

@@ -21,7 +21,7 @@ export function OnboardingCheck({ children }: OnboardingCheckProps) {
 
       try {
         const { data, error } = await supabase
-          .from('profiles')
+          .from('users')
           .select('onboarding_completed')
           .eq('id', user.id)
           .single()

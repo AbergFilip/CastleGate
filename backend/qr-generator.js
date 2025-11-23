@@ -9,11 +9,18 @@ import crypto from 'crypto'
  * @returns {string} QR-kod sträng
  */
 export function generateBankIDQR(qrStartToken, qrStartSecret, secondsSinceStart) {
+  // Säkerställ att secondsSinceStart är ett heltal
+  const seconds = Math.floor(secondsSinceStart)
+  
+  // Generera HMAC med SHA-256
   const qrAuthCode = crypto
     .createHmac('sha256', qrStartSecret)
-    .update(String(secondsSinceStart))
+    .update(String(seconds))
     .digest('hex')
   
-  return `bankid.${qrStartToken}.${secondsSinceStart}.${qrAuthCode}`
+  // QR-kod format: bankid.{token}.{seconds}.{hmac}
+  const qrCode = `bankid.${qrStartToken}.${seconds}.${qrAuthCode}`
+  
+  return qrCode
 }
 

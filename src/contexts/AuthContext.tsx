@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import { checkBankIDStatus, BankIDStatus, signUpWithBankID } from '../lib/bankid'
+import { checkBankIDStatus, BankIDStatus, signUpWithBankID, signInWithBankID } from '../lib/bankid'
 
 interface AuthContextType {
   user: User | null
@@ -10,6 +10,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, name?: string) => Promise<{ error: any }>
   signIn: (email: string, password: string) => Promise<{ error: any }>
   signUpWithBankID: (personalNumber: string, name: string, email?: string) => Promise<{ error: any }>
+  signInWithBankID: (personalNumber: string, name: string) => Promise<{ error: any }>
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<{ error: any }>
   updatePassword: (newPassword: string) => Promise<{ error: any }>
@@ -123,9 +124,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: { message: result.message || 'Kunde inte skapa konto med BankID' } }
       }
 
-      // Om backend returnerar en session token, logga in användaren
-      // Annars behöver användaren logga in manuellt
-      // För nu, uppdatera session om den finns
+      // Backend returnerar magic link token för att skapa session
+      if (result.token && result.actionLink) {
+        // Använd magic link för att skapa session
+        try {
+          // Försök hämta session (kan ha skapats automatiskt)
+          const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+          
+          if (session && !sessionError) {
+            setSession(session)
+            setUser(session.user)
+            return { error: null }
+          }
+        } catch (tokenError) {
+          console.error('Token verification error:', tokenError)
+        }
+      }
+      
+      // Fallback: Uppdatera session om den finns
       const { data: { session } } = await supabase.auth.getSession()
       if (session) {
         setSession(session)
@@ -135,6 +151,111 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { error: null }
     } catch (error: any) {
       return { error: { message: error.message || 'Ett fel uppstod vid registrering med BankID' } }
+    }
+  }
+
+  const signInWithBankIDHandler = async (personalNumber: string, name: string) => {
+    try {
+      // Anropa backend för att logga in med BankID
+      const result = await signInWithBankID({
+        personalNumber,
+        name,
+      })
+
+      if (!result.success) {
+        return { error: { message: result.message || 'Kunde inte logga in med BankID' } }
+      }
+
+      // Backend returnerar magic link token som vi kan använda för att skapa session
+      if (result.token && result.actionLink) {
+        console.log('Magic link mottagen, försöker skapa session...')
+        
+        try {
+          // För magic links från admin API, använd verifyOtp med token_hash om det finns
+          if (result.tokenHash) {
+            const { data: { session }, error: verifyError } = await supabase.auth.verifyOtp({
+              token_hash: result.tokenHash,
+              type: 'magiclink'
+            })
+            
+            if (session && !verifyError) {
+              console.log('✅ Session skapad via token_hash')
+              setSession(session)
+              setUser(session.user)
+              return { error: null }
+            }
+          }
+          
+          // Försök med token direkt
+          if (result.token) {
+            const { data: { session }, error: verifyError } = await supabase.auth.verifyOtp({
+              token: result.token,
+              type: 'magiclink'
+            })
+            
+            if (session && !verifyError) {
+              console.log('✅ Session skapad via token')
+              setSession(session)
+              setUser(session.user)
+              return { error: null }
+            }
+          }
+          
+          // Om verifyOtp inte fungerar, vänta lite och kolla om session skapades ändå
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          const { data: { session: retrySession } } = await supabase.auth.getSession()
+          
+          if (retrySession) {
+            console.log('✅ Session hittad efter väntan')
+            setSession(retrySession)
+            setUser(retrySession.user)
+            return { error: null }
+          }
+          
+          // Sista fallback: returnera actionLink så att frontend kan navigera dit
+          console.log('⚠️ Kunde inte skapa session direkt, returnerar actionLink för navigation')
+          return { 
+            error: null,
+            actionLink: result.actionLink,
+            token: result.token,
+            tokenHash: result.tokenHash
+          }
+        } catch (tokenError) {
+          console.error('Token verification error:', tokenError)
+          // Returnera actionLink så att frontend kan navigera dit
+          return { 
+            error: null,
+            actionLink: result.actionLink,
+            token: result.token,
+            tokenHash: result.tokenHash
+          }
+        }
+      }
+      
+      // Fallback: Om vi har userId, försök hämta session
+      if (result.userId) {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session && session.user.id === result.userId) {
+          setSession(session)
+          setUser(session.user)
+          return { error: null }
+        }
+      }
+      
+      // Om vi inte kunde skapa session men har actionLink, returnera den istället för error
+      if (result.actionLink) {
+        return { 
+          error: null,
+          actionLink: result.actionLink,
+          token: result.token,
+          tokenHash: result.tokenHash
+        }
+      }
+      
+      // Om vi inte kunde skapa session, returnera error
+      return { error: { message: 'Kunde inte skapa session. Försök igen.' } }
+    } catch (error: any) {
+      return { error: { message: error.message || 'Ett fel uppstod vid inloggning med BankID' } }
     }
   }
 
@@ -165,6 +286,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signUp,
     signIn,
     signUpWithBankID: signUpWithBankIDHandler,
+    signInWithBankID: signInWithBankIDHandler,
     signOut,
     resetPassword,
     updatePassword,

@@ -182,8 +182,8 @@ function AuthLanding() {
           </p>
         </header>
 
-        {/* BankID-knapp - Dold för nu (kan aktiveras senare) */}
-        {false && (
+        {/* BankID-knapp */}
+        {true && (
           <div
             style={{
               display: 'flex',

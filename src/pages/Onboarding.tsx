@@ -50,7 +50,7 @@ function Onboarding() {
       if (formData.country) updateData.country = formData.country
 
       const { error: updateError } = await supabase
-        .from('profiles')
+        .from('users')
         .update(updateData)
         .eq('id', user.id)
 

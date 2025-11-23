@@ -33,7 +33,7 @@ function Profile() {
 
       try {
         const { data, error } = await supabase
-          .from('profiles')
+          .from('users')
           .select('*')
           .eq('id', user.id)
           .single()
@@ -43,7 +43,7 @@ function Profile() {
           if (error.code === 'PGRST116') {
             console.log('Profile not found, creating new profile...')
             const { data: newProfile, error: createError } = await supabase
-              .from('profiles')
+              .from('users')
               .insert({
                 id: user.id,
                 name: user.user_metadata?.name || user.email?.split('@')[0] || '',
@@ -135,7 +135,7 @@ function Profile() {
       if (profileData.country) updateData.country = profileData.country
 
       const { error: updateError } = await supabase
-        .from('profiles')
+        .from('users')
         .update(updateData)
         .eq('id', user.id)
 

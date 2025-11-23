@@ -8,6 +8,7 @@ import AuthLanding from './pages/AuthLanding'
 import ForgotPassword from './pages/ForgotPassword'
 import ResetPassword from './pages/ResetPassword'
 import BankIDAuth from './pages/BankIDAuth'
+import AuthCallback from './pages/AuthCallback'
 import Onboarding from './pages/Onboarding'
 import Profile from './pages/Profile'
 import Accounts from './pages/Accounts'
@@ -96,6 +97,10 @@ function App() {
         <Route
           path="/bankid-auth"
           element={<BankIDAuth />}
+        />
+        <Route
+          path="/auth/callback"
+          element={<AuthCallback />}
         />
         <Route
           path="/onboarding"
