@@ -1,7 +1,9 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+
+const API_URL = 'http://localhost:3001/api'
 
 function Onboarding() {
   const navigate = useNavigate()
@@ -9,6 +11,7 @@ function Onboarding() {
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [existingPersonalNumber, setExistingPersonalNumber] = useState<string | null>(null)
 
   const [formData, setFormData] = useState({
     phone: '',
@@ -18,6 +21,68 @@ function Onboarding() {
     city: '',
     country: 'Sverige',
   })
+
+  // Ladda befintlig profil när komponenten mountas
+  useEffect(() => {
+    const loadExistingProfile = async () => {
+      if (!user) return
+
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.access_token) return
+
+        // Försök ladda profilen med timeout
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 sekunder timeout
+
+        try {
+          const response = await fetch(`${API_URL}/users/me`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            signal: controller.signal,
+          })
+
+          clearTimeout(timeoutId)
+
+          if (response.ok) {
+            const result = await response.json()
+            if (result.user) {
+              // Fyll i befintliga värden
+              if (result.user.phone) setFormData(prev => ({ ...prev, phone: result.user.phone }))
+              if (result.user.personal_number) {
+                setExistingPersonalNumber(result.user.personal_number)
+                setFormData(prev => ({ ...prev, personalNumber: result.user.personal_number }))
+              }
+              if (result.user.address) setFormData(prev => ({ ...prev, address: result.user.address }))
+              if (result.user.postal_code) setFormData(prev => ({ ...prev, postalCode: result.user.postal_code }))
+              if (result.user.city) setFormData(prev => ({ ...prev, city: result.user.city }))
+              if (result.user.country) setFormData(prev => ({ ...prev, country: result.user.country }))
+            }
+          }
+        } catch (fetchErr: any) {
+          clearTimeout(timeoutId)
+          if (fetchErr.name === 'AbortError' || fetchErr.message?.includes('ERR_INSUFFICIENT_RESOURCES')) {
+            // Tyst fel - användaren kan fortfarande fylla i formuläret
+            // Inte logga varning för dessa vanliga fel
+          } else {
+            throw fetchErr
+          }
+        }
+      } catch (err) {
+        // Tyst fel - användaren kan fortfarande fylla i formuläret
+        // Inte logga varning för nätverksfel
+        const errMsg = err instanceof Error ? err.message : undefined
+        if (!errMsg?.includes('ERR_INSUFFICIENT_RESOURCES') && !errMsg?.includes('Failed to fetch')) {
+          console.warn('Could not load existing profile, continuing anyway:', err)
+        }
+      }
+    }
+
+    loadExistingProfile()
+  }, [user])
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -35,34 +100,98 @@ function Onboarding() {
         return
       }
 
-      // Uppdatera profil i Supabase
+      // Hämta session token
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session?.access_token) {
+        setError('Du är inte inloggad')
+        setLoading(false)
+        return
+      }
+
+      // Uppdatera profil via backend API
       const updateData: any = {
         onboarding_completed: true,
-        updated_at: new Date().toISOString(),
       }
 
       // Lägg bara till fält som har värden
       if (formData.phone) updateData.phone = formData.phone
-      if (formData.personalNumber) updateData.personal_number = formData.personalNumber
+      
+      // Personnummer: Lägg bara till om det faktiskt anges OCH är annorlunda från det befintliga
+      // Om personnumret redan finns från BankID signup och är samma, ska vi inte uppdatera det
+      if (formData.personalNumber && formData.personalNumber.trim() !== '') {
+        const trimmedPersonalNumber = formData.personalNumber.trim()
+        // Om det är samma som det befintliga, skippa det (förhindra onödig uppdatering)
+        if (!existingPersonalNumber || existingPersonalNumber !== trimmedPersonalNumber) {
+          updateData.personal_number = trimmedPersonalNumber
+        }
+      }
+      
       if (formData.address) updateData.address = formData.address
       if (formData.postalCode) updateData.postal_code = formData.postalCode
       if (formData.city) updateData.city = formData.city
       if (formData.country) updateData.country = formData.country
 
-      const { error: updateError } = await supabase
-        .from('users')
-        .update(updateData)
-        .eq('id', user.id)
+      const response = await fetch(`${API_URL}/users/me`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updateData),
+      })
 
-      if (updateError) {
-        console.error('Update error:', updateError)
-        setError('Kunde inte spara information. Försök igen.')
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Update error:', errorData)
+        setError(errorData.message || 'Kunde inte spara information. Försök igen.')
         setLoading(false)
         return
       }
 
-      // Redirecta till home
-      navigate('/home')
+      // Vänta lite för att säkerställa att databasen har uppdaterats
+      await new Promise(resolve => setTimeout(resolve, 1000))
+
+      // Verifiera att uppdateringen lyckades genom att hämta profilen igen
+      // Försök flera gånger om nödvändigt
+      let verified = false
+      let attempts = 0
+      const maxAttempts = 5
+
+      while (!verified && attempts < maxAttempts) {
+        const verifyResponse = await fetch(`${API_URL}/users/me`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+            'Content-Type': 'application/json',
+          },
+        })
+
+        if (verifyResponse.ok) {
+          const verifyResult = await verifyResponse.json()
+          if (verifyResult.user?.onboarding_completed === true) {
+            verified = true
+            // Spara i localStorage för cache
+            if (user?.id) {
+              localStorage.setItem(`onboarding_${user.id}`, 'completed')
+            }
+            // Redirecta till home
+            navigate('/home', { replace: true })
+            return
+          }
+        }
+
+        attempts++
+        if (attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+      }
+
+      // Om vi inte kunde verifiera efter flera försök
+      if (!verified) {
+        console.error('[Onboarding] Could not verify onboarding completion after multiple attempts')
+        setError('Kunde inte verifiera att informationen sparades. Försök igen eller ladda om sidan.')
+        setLoading(false)
+      }
     } catch (err) {
       console.error('Unexpected error:', err)
       setError('Ett oväntat fel uppstod. Försök igen.')

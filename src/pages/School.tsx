@@ -1,13 +1,106 @@
+import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
+import { getSchools, createSchool, deleteSchool } from '../lib/documents'
+import { Modal, FormField, Button } from '../components/Modal'
+import { useToast } from '../components/Toast'
 
 function School() {
   const navigate = useNavigate()
+  const { showToast } = useToast()
+  const [schools, setSchools] = useState<Record<string, any[]>>({
+    preschool: [],
+    elementary: [],
+    high_school: [],
+  })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [currentType, setCurrentType] = useState<string | null>(null)
+  const [formData, setFormData] = useState({ name: '', address: '', phone: '', email: '' })
+
+  useEffect(() => {
+    loadSchools()
+  }, [])
+
+  const loadSchools = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const allSchools = await getSchools()
+      
+      // Gruppera skolor efter typ
+      const grouped: Record<string, any[]> = {
+        preschool: [],
+        elementary: [],
+        high_school: [],
+      }
+
+      allSchools.forEach((school: any) => {
+        if (school.type && grouped[school.type]) {
+          grouped[school.type].push(school)
+        }
+      })
+
+      setSchools(grouped)
+    } catch (err) {
+      console.error('Error loading schools:', err)
+      setError(err instanceof Error ? err.message : 'Kunde inte ladda skolor')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
     } else {
       navigate('/documents')
+    }
+  }
+
+  const handleAddSchool = (type: string) => {
+    setCurrentType(type)
+    setFormData({ name: '', address: '', phone: '', email: '' })
+    setShowAddModal(true)
+  }
+
+  const handleSubmitSchool = async () => {
+    if (!formData.name.trim() || !currentType) return
+
+    try {
+      await createSchool({
+        name: formData.name,
+        type: currentType,
+        address: formData.address || undefined,
+        phone: formData.phone || undefined,
+        email: formData.email || undefined,
+      })
+      loadSchools()
+      setShowAddModal(false)
+      setFormData({ name: '', address: '', phone: '', email: '' })
+    } catch (err) {
+      showToast('Kunde inte skapa skola: ' + (err instanceof Error ? err.message : 'Okänt fel'), 'error')
+    }
+  }
+
+  const getTypeTitle = (type: string) => {
+    const titles: Record<string, string> = {
+      preschool: 'Förskola',
+      elementary: 'Grundskola',
+      high_school: 'Gymnasium',
+    }
+    return titles[type] || type
+  }
+
+  const handleDeleteSchool = async (schoolId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!confirm('Är du säker på att du vill ta bort denna skola?')) return
+
+    try {
+      await deleteSchool(schoolId)
+      loadSchools()
+    } catch (err) {
+      showToast('Kunde inte ta bort skola: ' + (err instanceof Error ? err.message : 'Okänt fel'), 'error')
     }
   }
 
@@ -123,16 +216,113 @@ function School() {
           gap: '24px',
         }}
       >
-        <Section title="Förskolor">
-          <LinkCard to="/documents/school/english-preschool" label="Engelska förskolan" />
-        </Section>
-        <Section title="Grundskolor">
-          <AddNewCard label="Lägg till ny" />
-        </Section>
-        <Section title="Gymnasium">
-          <AddNewCard label="Lägg till ny" />
-        </Section>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#2A2A2A', opacity: 0.6 }}>
+            Laddar skolor...
+          </div>
+        ) : error ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#d32f2f' }}>
+            {error}
+          </div>
+        ) : (
+          <>
+            <Section title="Förskolor">
+              {schools.preschool.map((school) => (
+                <SchoolCard
+                  key={school.id}
+                  school={school}
+                  onDelete={handleDeleteSchool}
+                />
+              ))}
+              <AddNewCard
+                label="Lägg till ny"
+                onClick={() => handleAddSchool('preschool')}
+              />
+            </Section>
+            <Section title="Grundskolor">
+              {schools.elementary.map((school) => (
+                <SchoolCard
+                  key={school.id}
+                  school={school}
+                  onDelete={handleDeleteSchool}
+                />
+              ))}
+              <AddNewCard
+                label="Lägg till ny"
+                onClick={() => handleAddSchool('elementary')}
+              />
+            </Section>
+            <Section title="Gymnasium">
+              {schools.high_school.map((school) => (
+                <SchoolCard
+                  key={school.id}
+                  school={school}
+                  onDelete={handleDeleteSchool}
+                />
+              ))}
+              <AddNewCard
+                label="Lägg till ny"
+                onClick={() => handleAddSchool('high_school')}
+              />
+            </Section>
+          </>
+        )}
       </div>
+
+      <Modal
+        isOpen={showAddModal}
+        onClose={() => {
+          setShowAddModal(false)
+          setFormData({ name: '', address: '', phone: '', email: '' })
+        }}
+        title={`Lägg till ${currentType ? getTypeTitle(currentType) : 'skola'}`}
+      >
+        <FormField
+          label="Skolans namn"
+          value={formData.name}
+          onChange={(value) => setFormData({ ...formData, name: value })}
+          placeholder="Ange skolans namn"
+          required
+        />
+        <FormField
+          label="Adress"
+          value={formData.address}
+          onChange={(value) => setFormData({ ...formData, address: value })}
+          placeholder="Ange adress (valfritt)"
+        />
+        <FormField
+          label="Telefon"
+          value={formData.phone}
+          onChange={(value) => setFormData({ ...formData, phone: value })}
+          placeholder="Ange telefonnummer (valfritt)"
+          type="tel"
+        />
+        <FormField
+          label="E-post"
+          value={formData.email}
+          onChange={(value) => setFormData({ ...formData, email: value })}
+          placeholder="Ange e-postadress (valfritt)"
+          type="email"
+        />
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setShowAddModal(false)
+              setFormData({ name: '', address: '', phone: '', email: '' })
+            }}
+          >
+            Avbryt
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleSubmitSchool}
+            disabled={!formData.name.trim()}
+          >
+            Spara
+          </Button>
+        </div>
+      </Modal>
     </div>
   )
 }
@@ -156,10 +346,12 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function LinkCard({ to, label }: { to: string; label: string }) {
+function SchoolCard({ school, onDelete }: { school: any; onDelete: (id: string, e: React.MouseEvent) => void }) {
+  const navigate = useNavigate()
+  
   return (
-    <Link
-      to={to}
+    <div
+      onClick={() => navigate(`/documents/school/${school.id}`)}
       style={{
         width: '100%',
         background: '#FFFFFF',
@@ -171,21 +363,44 @@ function LinkCard({ to, label }: { to: string; label: string }) {
         justifyContent: 'space-between',
         alignItems: 'center',
         boxSizing: 'border-box',
-        textDecoration: 'none',
-        color: '#2A2A2A',
+        cursor: 'pointer',
       }}
     >
-      <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 500, fontSize: '15px' }}>{label}</span>
-      <svg width="6" height="12" viewBox="0 0 6 12" fill="none">
-        <path d="M1 1L5 6L1 11" stroke="#1C3C9B" strokeWidth="2" strokeLinecap="round" />
-      </svg>
-    </Link>
+      <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 500, fontSize: '15px' }}>{school.name}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <button
+          onClick={(e) => onDelete(school.id, e)}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            padding: '4px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+          aria-label="Ta bort"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path
+              d="M4 4L12 12M4 12L12 4"
+              stroke="#d32f2f"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+        <svg width="6" height="12" viewBox="0 0 6 12" fill="none">
+          <path d="M1 1L5 6L1 11" stroke="#1C3C9B" strokeWidth="2" strokeLinecap="round" />
+        </svg>
+      </div>
+    </div>
   )
 }
 
-function AddNewCard({ label }: { label: string }) {
+function AddNewCard({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <div
+      onClick={onClick}
       style={{
         width: '100%',
         background: '#FFFFFF',
@@ -197,9 +412,11 @@ function AddNewCard({ label }: { label: string }) {
         justifyContent: 'space-between',
         alignItems: 'center',
         boxSizing: 'border-box',
+        cursor: 'pointer',
+        border: '2px dashed #E3ECFF',
       }}
     >
-      <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 500, fontSize: '15px', color: '#2A2A2A' }}>{label}</span>
+      <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 500, fontSize: '15px', color: '#1C3C9B' }}>{label}</span>
       <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
         <path d="M6 1V11M1 6H11" stroke="#1C3C9B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>

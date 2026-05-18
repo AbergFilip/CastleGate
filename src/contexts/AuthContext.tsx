@@ -1,19 +1,32 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useRef, useCallback, useMemo, ReactNode } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { checkBankIDStatus, BankIDStatus, signUpWithBankID, signInWithBankID } from '../lib/bankid'
+
+type AuthError = { message?: string } | null
+
+interface BankIDAuthResult {
+  error: AuthError
+  actionLink?: string
+  token?: string
+  tokenHash?: string
+}
 
 interface AuthContextType {
   user: User | null
   session: Session | null
   loading: boolean
-  signUp: (email: string, password: string, name?: string) => Promise<{ error: any }>
-  signIn: (email: string, password: string) => Promise<{ error: any }>
-  signUpWithBankID: (personalNumber: string, name: string, email?: string) => Promise<{ error: any }>
-  signInWithBankID: (personalNumber: string, name: string) => Promise<{ error: any }>
+  signUp: (email: string, password: string, name?: string) => Promise<{ error: AuthError }>
+  signIn: (email: string, password: string) => Promise<{ error: AuthError }>
+  signUpWithBankID: (
+    personalNumber: string,
+    name: string,
+    email?: string
+  ) => Promise<BankIDAuthResult>
+  signInWithBankID: (personalNumber: string, name: string) => Promise<BankIDAuthResult>
   signOut: () => Promise<void>
-  resetPassword: (email: string) => Promise<{ error: any }>
-  updatePassword: (newPassword: string) => Promise<{ error: any }>
+  resetPassword: (email: string) => Promise<{ error: AuthError }>
+  updatePassword: (newPassword: string) => Promise<{ error: AuthError }>
   bankIDStatus: BankIDStatus | null
   refreshBankIDStatus: () => Promise<void>
 }
@@ -25,51 +38,120 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [bankIDStatus, setBankIDStatus] = useState<BankIDStatus | null>(null)
+  const [isRefreshingBankID, setIsRefreshingBankID] = useState(false)
+  const bankIDRefreshTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const lastBankIDRefreshRef = useRef<number>(0)
 
   const refreshBankIDStatus = async () => {
+    // Förhindra att köra flera gånger samtidigt
+    if (isRefreshingBankID) return
+    
+    // Debounce: Förhindra att köra för ofta (max en gång per 5 sekunder)
+    const now = Date.now()
+    const timeSinceLastRefresh = now - lastBankIDRefreshRef.current
+    if (timeSinceLastRefresh < 5000) {
+      return
+    }
+    
+    // Rensa tidigare timeout om den finns
+    if (bankIDRefreshTimeoutRef.current) {
+      clearTimeout(bankIDRefreshTimeoutRef.current)
+      bankIDRefreshTimeoutRef.current = null
+    }
+    
+    setIsRefreshingBankID(true)
+    lastBankIDRefreshRef.current = now
+    
     try {
-      const status = await checkBankIDStatus()
-      setBankIDStatus(status)
+      // Försök med timeout för att undvika att hänga
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 3000) // 3 sekunder timeout
+      
+      try {
+        const status = await checkBankIDStatus(controller.signal)
+        clearTimeout(timeoutId)
+        setBankIDStatus(status)
+      } catch (fetchErr: any) {
+        clearTimeout(timeoutId)
+        // Tyst fel - backend kan vara nere eller överbelastad, men appen ska fortfarande fungera
+        if (fetchErr.name === 'AbortError' || 
+            fetchErr.message?.includes('Failed to fetch') || 
+            fetchErr.message?.includes('ERR_INSUFFICIENT_RESOURCES') ||
+            fetchErr.message?.includes('Timeout')) {
+          // Inte logga varning för dessa fel - de är för vanliga
+          setBankIDStatus({ linked: false, verified: false })
+        } else {
+          throw fetchErr
+        }
+      }
     } catch (error) {
-      console.error('Error checking BankID status:', error)
-      // Sätt till null vid fel (backend kanske inte är implementerad än)
-      setBankIDStatus({ linked: false })
+      // Tyst fel - appen ska fortfarande fungera även om BankID-status inte kan kontrolleras
+      setBankIDStatus({ linked: false, verified: false })
+    } finally {
+      setIsRefreshingBankID(false)
     }
   }
 
+  // Auth subscription — körs bara en gång vid mount
   useEffect(() => {
-    // Hämta initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
       setUser(session?.user ?? null)
       setLoading(false)
-      
-      // Hämta BankID-status om användaren är inloggad
+
       if (session?.user) {
-        refreshBankIDStatus()
+        if (bankIDRefreshTimeoutRef.current) clearTimeout(bankIDRefreshTimeoutRef.current)
+        bankIDRefreshTimeoutRef.current = setTimeout(() => refreshBankIDStatus(), 1000)
       }
     })
 
-    // Lyssna på auth state changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
       setUser(session?.user ?? null)
       setLoading(false)
-      
-      // Hämta BankID-status om användaren är inloggad
+
       if (session?.user) {
-        refreshBankIDStatus()
+        if (bankIDRefreshTimeoutRef.current) clearTimeout(bankIDRefreshTimeoutRef.current)
+        bankIDRefreshTimeoutRef.current = setTimeout(() => refreshBankIDStatus(), 1000)
       } else {
         setBankIDStatus(null)
       }
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      subscription.unsubscribe()
+      if (bankIDRefreshTimeoutRef.current) clearTimeout(bankIDRefreshTimeoutRef.current)
+    }
   }, [])
 
-  const signUp = async (email: string, password: string, name?: string) => {
+  // Inaktivitetstimer — uppdateras när user ändras
+  useEffect(() => {
+    const timeoutMinutes = Number(import.meta.env.VITE_SESSION_TIMEOUT_MINUTES || '15')
+    const safeMinutes = Number.isFinite(timeoutMinutes) && timeoutMinutes > 0 ? timeoutMinutes : 15
+    const SESSION_TIMEOUT = safeMinutes * 60 * 1000
+
+    let inactivityTimer: NodeJS.Timeout | null = null
+
+    const resetInactivityTimer = () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer)
+      if (user) {
+        inactivityTimer = setTimeout(async () => {
+          await supabase.auth.signOut()
+        }, SESSION_TIMEOUT)
+      }
+    }
+
+    const events = ['mousedown', 'keydown', 'scroll', 'touchstart']
+    events.forEach(event => window.addEventListener(event, resetInactivityTimer, true))
+    if (user) resetInactivityTimer()
+
+    return () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer)
+      events.forEach(event => window.removeEventListener(event, resetInactivityTimer, true))
+    }
+  }, [user])
+
+  const signUp = useCallback(async (email: string, password: string, name?: string) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -91,9 +173,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     return { error: null }
-  }
+  }, [])
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -109,9 +191,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     return { error: null }
-  }
+  }, [])
 
-  const signUpWithBankIDHandler = async (personalNumber: string, name: string, email?: string) => {
+  const signUpWithBankIDHandler = useCallback(async (personalNumber: string, name: string, email?: string) => {
     try {
       // Anropa backend för att skapa konto med BankID
       const result = await signUpWithBankID({
@@ -125,36 +207,58 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // Backend returnerar magic link token för att skapa session
-      if (result.token && result.actionLink) {
-        // Använd magic link för att skapa session
+      if (result.token) {
         try {
-          // Försök hämta session (kan ha skapats automatiskt)
-          const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+          // Försök verifiera token och skapa session
+          if (result.tokenHash) {
+            const { data: { session }, error: verifyError } = await supabase.auth.verifyOtp({
+              token_hash: result.tokenHash,
+              type: 'magiclink'
+            })
+            
+            if (session && !verifyError) {
+              setSession(session)
+              setUser(session.user)
+              return { error: null }
+            }
+          }
           
-          if (session && !sessionError) {
-            setSession(session)
-            setUser(session.user)
-            return { error: null }
+          // Försök med token direkt (kräver email enligt nyare Supabase-typer)
+          if (result.email) {
+            const { data: { session }, error: verifyError } = await supabase.auth.verifyOtp({
+              email: result.email,
+              token: result.token,
+              type: 'magiclink',
+            })
+
+            if (session && !verifyError) {
+              setSession(session)
+              setUser(session.user)
+              return { error: null }
+            }
           }
         } catch (tokenError) {
-          console.error('Token verification error:', tokenError)
+          if (import.meta.env.DEV) console.error('Token verification error:', tokenError)
         }
       }
       
-      // Fallback: Uppdatera session om den finns
+      // Fallback: Vänta lite och försök hämta session
+      await new Promise(resolve => setTimeout(resolve, 1000))
       const { data: { session } } = await supabase.auth.getSession()
       if (session) {
         setSession(session)
         setUser(session.user)
+        return { error: null }
       }
 
-      return { error: null }
-    } catch (error: any) {
-      return { error: { message: error.message || 'Ett fel uppstod vid registrering med BankID' } }
+      // Om ingen session skapades, returnera error
+      return { error: { message: 'Kunde inte skapa session. Försök logga in igen.' } }
+    } catch (error) {
+      return { error: { message: error instanceof Error ? error.message : 'Ett fel uppstod vid registrering med BankID' } }
     }
-  }
+  }, [])
 
-  const signInWithBankIDHandler = async (personalNumber: string, name: string) => {
+  const signInWithBankIDHandler = useCallback(async (personalNumber: string, name: string) => {
     try {
       // Anropa backend för att logga in med BankID
       const result = await signInWithBankID({
@@ -168,8 +272,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Backend returnerar magic link token som vi kan använda för att skapa session
       if (result.token && result.actionLink) {
-        console.log('Magic link mottagen, försöker skapa session...')
-        
         try {
           // För magic links från admin API, använd verifyOtp med token_hash om det finns
           if (result.tokenHash) {
@@ -179,22 +281,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             })
             
             if (session && !verifyError) {
-              console.log('✅ Session skapad via token_hash')
               setSession(session)
               setUser(session.user)
               return { error: null }
             }
           }
           
-          // Försök med token direkt
-          if (result.token) {
+          // Försök med token direkt (kräver email enligt nyare Supabase-typer)
+          if (result.token && result.email) {
             const { data: { session }, error: verifyError } = await supabase.auth.verifyOtp({
+              email: result.email,
               token: result.token,
-              type: 'magiclink'
+              type: 'magiclink',
             })
-            
+
             if (session && !verifyError) {
-              console.log('✅ Session skapad via token')
               setSession(session)
               setUser(session.user)
               return { error: null }
@@ -206,14 +307,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const { data: { session: retrySession } } = await supabase.auth.getSession()
           
           if (retrySession) {
-            console.log('✅ Session hittad efter väntan')
             setSession(retrySession)
             setUser(retrySession.user)
             return { error: null }
           }
           
           // Sista fallback: returnera actionLink så att frontend kan navigera dit
-          console.log('⚠️ Kunde inte skapa session direkt, returnerar actionLink för navigation')
           return { 
             error: null,
             actionLink: result.actionLink,
@@ -221,7 +320,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             tokenHash: result.tokenHash
           }
         } catch (tokenError) {
-          console.error('Token verification error:', tokenError)
+          if (import.meta.env.DEV) console.error('Token verification error:', tokenError)
           // Returnera actionLink så att frontend kan navigera dit
           return { 
             error: null,
@@ -254,32 +353,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       // Om vi inte kunde skapa session, returnera error
       return { error: { message: 'Kunde inte skapa session. Försök igen.' } }
-    } catch (error: any) {
-      return { error: { message: error.message || 'Ett fel uppstod vid inloggning med BankID' } }
+    } catch (error) {
+      return { error: { message: error instanceof Error ? error.message : 'Ett fel uppstod vid inloggning med BankID' } }
     }
-  }
+  }, [])
 
-  const signOut = async () => {
-    await supabase.auth.signOut()
-    setSession(null)
-    setUser(null)
-  }
+  const signOut = useCallback(async () => {
+    try {
+      await supabase.auth.signOut()
+      setSession(null)
+      setUser(null)
+      setBankIDStatus(null)
+    } catch {
+      setSession(null)
+      setUser(null)
+      setBankIDStatus(null)
+    }
+  }, [])
 
-  const resetPassword = async (email: string) => {
+  const resetPassword = useCallback(async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/reset-password`,
     })
     return { error }
-  }
+  }, [])
 
-  const updatePassword = async (newPassword: string) => {
+  const updatePassword = useCallback(async (newPassword: string) => {
     const { error } = await supabase.auth.updateUser({
       password: newPassword,
     })
     return { error }
-  }
+  }, [])
 
-  const value = {
+  const value = useMemo(() => ({
     user,
     session,
     loading,
@@ -292,7 +398,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     updatePassword,
     bankIDStatus,
     refreshBankIDStatus,
-  }
+  }), [user, session, loading, bankIDStatus, signUp, signIn, signUpWithBankIDHandler, signInWithBankIDHandler, signOut, resetPassword, updatePassword, refreshBankIDStatus])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

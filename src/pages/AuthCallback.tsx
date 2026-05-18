@@ -16,8 +16,6 @@ function AuthCallback() {
       const tokenHash = searchParams.get('token_hash')
       const type = searchParams.get('type')
 
-      console.log('AuthCallback - Token params:', { token: token ? 'present' : 'missing', tokenHash: tokenHash ? 'present' : 'missing', type })
-
       if (token && type === 'magiclink') {
         try {
           // För magic links genererade via admin API, använd token direkt
@@ -35,20 +33,11 @@ function AuthCallback() {
             error = result.error
           }
 
-          // Om det inte fungerade med token_hash, försök med token direkt
-          if (!session && !error && token) {
-            console.log('Försöker verifiera med token direkt...')
-            const result = await supabase.auth.verifyOtp({
-              token: token,
-              type: 'magiclink'
-            })
-            session = result.data?.session
-            error = result.error
-          }
+          // Token-direkt-verifiering kräver email enligt nyare Supabase-typer.
+          // Hoppa över om vi inte har email i query-stringen.
 
           // Om fortfarande ingen session, försök hämta session direkt
           if (!session && !error) {
-            console.log('Försöker hämta session direkt...')
             const { data: { session: currentSession } } = await supabase.auth.getSession()
             session = currentSession
           }
@@ -72,11 +61,9 @@ function AuthCallback() {
 
           if (session) {
             // Session skapad, redirecta till home
-            console.log('Session skapad, navigerar till home')
             navigate('/home')
           } else {
             // Vänta lite och försök hämta session igen
-            console.log('Ingen session än, väntar...')
             setTimeout(async () => {
               const { data: { session: retrySession } } = await supabase.auth.getSession()
               if (retrySession) {

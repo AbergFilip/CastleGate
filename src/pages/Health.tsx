@@ -1,27 +1,118 @@
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-
-const healthChecks = [{ name: 'Årlig kontroll, Müllers Klinik' }]
-
-const dentistVisits = [{ name: 'Lena Kristoffersson' }]
-
-const prescriptions = [
-  { name: 'Humira 200mg', date: '2022-01-12' },
-  { name: 'Stelare 50mg', date: '2023-05-01' },
-  { name: 'Keytruda', date: '2021-07-19' },
-]
-
-const optics = [{ name: 'Glasögonrecept' }, { name: 'Kontaktlinsrecept' }]
-
-const vaccinations = [{ name: 'Stelkram' }, { name: 'Hepatit B' }, { name: 'Kikhosta' }, { name: 'Mässling' }]
+import { getDocuments, createDocument, deleteDocument } from '../lib/documents'
+import { Modal, FormField, Button } from '../components/Modal'
+import { useToast } from '../components/Toast'
 
 function Health() {
   const navigate = useNavigate()
+  const { showToast } = useToast()
+  const [documents, setDocuments] = useState<Record<string, any[]>>({
+    health_checks: [],
+    dentist: [],
+    prescriptions: [],
+    optics: [],
+    vaccinations: [],
+  })
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [currentSubcategory, setCurrentSubcategory] = useState<string | null>(null)
+  const [formData, setFormData] = useState({ title: '', date: '', description: '' })
+
+  useEffect(() => {
+    loadDocuments()
+  }, [])
+
+  const loadDocuments = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const allDocuments = await getDocuments({ category: 'health' })
+      
+      // Gruppera dokument efter subcategory
+      const grouped: Record<string, any[]> = {
+        health_checks: [],
+        dentist: [],
+        prescriptions: [],
+        optics: [],
+        vaccinations: [],
+      }
+
+      allDocuments.forEach((doc: any) => {
+        if (doc.subcategory && grouped[doc.subcategory]) {
+          grouped[doc.subcategory].push(doc)
+        }
+      })
+
+      setDocuments(grouped)
+    } catch (err) {
+      console.error('Error loading documents:', err)
+      setError(err.message || 'Kunde inte ladda dokument')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
     } else {
       navigate('/documents')
+    }
+  }
+
+  const handleDocumentClick = (document: any) => {
+    if (document.file_url) {
+      window.open(document.file_url, '_blank')
+    }
+  }
+
+  const handleAddDocument = (subcategory: string) => {
+    setCurrentSubcategory(subcategory)
+    setFormData({ title: '', date: '', description: '' })
+    setShowAddModal(true)
+  }
+
+  const handleSubmitDocument = async () => {
+    if (!formData.title.trim() || !currentSubcategory) return
+
+    try {
+      await createDocument({
+        category: 'health',
+        subcategory: currentSubcategory,
+        title: formData.title,
+        description: formData.description || undefined,
+        metadata: formData.date ? { date: formData.date } : {},
+      })
+      loadDocuments()
+      setShowAddModal(false)
+      setFormData({ title: '', date: '', description: '' })
+    } catch (err) {
+      showToast('Kunde inte skapa dokument: ' + (err.message || 'Okänt fel'), 'error')
+    }
+  }
+
+  const getSubcategoryTitle = (subcategory: string) => {
+    const titles: Record<string, string> = {
+      health_checks: 'Hälsokontroll',
+      dentist: 'Tandläkare',
+      prescriptions: 'Läkemedelsrecept',
+      optics: 'Optik',
+      vaccinations: 'Vaccination',
+    }
+    return titles[subcategory] || subcategory
+  }
+
+  const handleDeleteDocument = async (documentId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!confirm('Är du säker på att du vill ta bort detta dokument?')) return
+
+    try {
+      await deleteDocument(documentId)
+      loadDocuments()
+    } catch (err) {
+      showToast('Kunde inte ta bort dokument: ' + (err.message || 'Okänt fel'), 'error')
     }
   }
 
@@ -144,19 +235,124 @@ function Health() {
           gap: '24px',
         }}
       >
-        <Section title="Hälsakontroller" items={healthChecks} />
-        <Section title="Tandläkare" items={dentistVisits} />
-        <Section title="Läkemedelsrecept" items={prescriptions} showDate />
-        <Section title="Optik" items={optics} />
-        <Section title="Vaccinationer" items={vaccinations} />
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#2A2A2A', opacity: 0.6 }}>
+            Laddar dokument...
+          </div>
+        ) : error ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#d32f2f' }}>
+            {error}
+          </div>
+        ) : (
+          <>
+            <Section
+              title="Hälsakontroller"
+              items={documents.health_checks}
+              onItemClick={handleDocumentClick}
+              onItemDelete={handleDeleteDocument}
+              onAdd={() => handleAddDocument('health_checks')}
+            />
+            <Section
+              title="Tandläkare"
+              items={documents.dentist}
+              onItemClick={handleDocumentClick}
+              onItemDelete={handleDeleteDocument}
+              onAdd={() => handleAddDocument('dentist')}
+            />
+            <Section
+              title="Läkemedelsrecept"
+              items={documents.prescriptions}
+              showDate
+              onItemClick={handleDocumentClick}
+              onItemDelete={handleDeleteDocument}
+              onAdd={() => handleAddDocument('prescriptions')}
+            />
+            <Section
+              title="Optik"
+              items={documents.optics}
+              onItemClick={handleDocumentClick}
+              onItemDelete={handleDeleteDocument}
+              onAdd={() => handleAddDocument('optics')}
+            />
+            <Section
+              title="Vaccinationer"
+              items={documents.vaccinations}
+              onItemClick={handleDocumentClick}
+              onItemDelete={handleDeleteDocument}
+              onAdd={() => handleAddDocument('vaccinations')}
+            />
+          </>
+        )}
       </div>
+
+      <Modal
+        isOpen={showAddModal}
+        onClose={() => {
+          setShowAddModal(false)
+          setFormData({ title: '', date: '', description: '' })
+        }}
+        title={`Lägg till ${currentSubcategory ? getSubcategoryTitle(currentSubcategory) : 'dokument'}`}
+      >
+        <FormField
+          label="Titel"
+          value={formData.title}
+          onChange={(value) => setFormData({ ...formData, title: value })}
+          placeholder="Ange titel"
+          required
+        />
+        {currentSubcategory === 'prescriptions' && (
+          <FormField
+            label="Datum"
+            value={formData.date}
+            onChange={(value) => setFormData({ ...formData, date: value })}
+            placeholder="YYYY-MM-DD"
+            type="date"
+          />
+        )}
+        <FormField
+          label="Beskrivning"
+          value={formData.description}
+          onChange={(value) => setFormData({ ...formData, description: value })}
+          placeholder="Ange beskrivning (valfritt)"
+        />
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setShowAddModal(false)
+              setFormData({ title: '', date: '', description: '' })
+            }}
+          >
+            Avbryt
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleSubmitDocument}
+            disabled={!formData.title.trim()}
+          >
+            Spara
+          </Button>
+        </div>
+      </Modal>
     </div>
   )
 }
 
-type SectionItem = { name: string; date?: string }
-
-function Section({ title, items, showDate = false }: { title: string; items: SectionItem[]; showDate?: boolean }) {
+function Section({
+  title,
+  items,
+  showDate = false,
+  onItemClick,
+  onItemDelete,
+  onAdd,
+}: {
+  title: string
+  items: any[]
+  showDate?: boolean
+  onItemClick?: (item: any) => void
+  onItemDelete?: (id: string, e: React.MouseEvent) => void
+  onAdd?: () => void
+}) {
   return (
     <section style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
       <h3
@@ -171,9 +367,68 @@ function Section({ title, items, showDate = false }: { title: string; items: Sec
         {title}
       </h3>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-        {items.map((item) => (
+        {items.map((item) => {
+          const date = item.metadata?.date || item.date
+          return (
+            <div
+              key={item.id}
+              onClick={() => onItemClick?.(item)}
+              style={{
+                width: '100%',
+                background: '#FFFFFF',
+                borderRadius: '16px',
+                boxShadow: '0px 8px 24px rgba(20, 45, 120, 0.08)',
+                padding: '14px 18px',
+                display: 'flex',
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                boxSizing: 'border-box',
+                cursor: onItemClick ? 'pointer' : 'default',
+              }}
+            >
+              <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 500, fontSize: '15px', color: '#2A2A2A' }}>
+                {item.title}
+              </span>
+              <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: showDate && date ? '16px' : '0' }}>
+                {showDate && date && (
+                  <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 600, fontSize: '13px', color: '#1C3C9B' }}>
+                    {date}
+                  </span>
+                )}
+                {onItemDelete && (
+                  <button
+                    onClick={(e) => onItemDelete(item.id, e)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      padding: '4px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                    aria-label="Ta bort"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path
+                        d="M4 4L12 12M4 12L12 4"
+                        stroke="#d32f2f"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
+                )}
+                <svg width="6" height="12" viewBox="0 0 6 12" fill="none">
+                  <path d="M1 1L5 6L1 11" stroke="#1C3C9B" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </div>
+            </div>
+          )
+        })}
+        {onAdd && (
           <div
-            key={item.name}
+            onClick={onAdd}
             style={{
               width: '100%',
               background: '#FFFFFF',
@@ -185,19 +440,18 @@ function Section({ title, items, showDate = false }: { title: string; items: Sec
               justifyContent: 'space-between',
               alignItems: 'center',
               boxSizing: 'border-box',
+              cursor: 'pointer',
+              border: '2px dashed #E3ECFF',
             }}
           >
-            <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 500, fontSize: '15px', color: '#2A2A2A' }}>{item.name}</span>
-            <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: showDate && item.date ? '16px' : '0' }}>
-              {showDate && item.date && (
-                <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 600, fontSize: '13px', color: '#1C3C9B' }}>{item.date}</span>
-              )}
-              <svg width="6" height="12" viewBox="0 0 6 12" fill="none">
-                <path d="M1 1L5 6L1 11" stroke="#1C3C9B" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-            </div>
+            <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 500, fontSize: '15px', color: '#1C3C9B' }}>
+              Lägg till nytt dokument
+            </span>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M6 1V11M1 6H11" stroke="#1C3C9B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
           </div>
-        ))}
+        )}
       </div>
     </section>
   )

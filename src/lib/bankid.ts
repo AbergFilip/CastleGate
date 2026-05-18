@@ -1,9 +1,11 @@
+import { supabase } from './supabase'
+import { getAuthToken } from './auth'
+
 /**
  * BankID API Client
- * 
+ *
  * OBS: BankID-integration kräver en backend-server med FP-certifikat.
- * Denna klient är en placeholder som förbereder strukturen.
- * 
+ *
  * För att implementera BankID behöver du:
  * 1. Teckna avtal med BankID eller en återförsäljare
  * 2. Skaffa FP-certifikat
@@ -11,10 +13,80 @@
  * 4. Uppdatera API_BASE_URL till din backend
  */
 
-const API_BASE_URL = import.meta.env.VITE_BANKID_API_URL || 'http://localhost:3001/api/bankid'
+const API_BASE_URL =
+  import.meta.env.VITE_BANKID_API_URL || 'http://localhost:3001/api/v1/bankid'
+
+const MAX_RETRIES = 2
+const RETRY_DELAY_MS = 1000
+
+/** BankID API-fel (bas) */
+export class BankIDError extends Error {
+  constructor(
+    message: string,
+    public readonly code?: string,
+    public readonly statusCode?: number
+  ) {
+    super(message)
+    this.name = 'BankIDError'
+    Object.setPrototypeOf(this, BankIDError.prototype)
+  }
+}
+
+/** Nätverksfel (transient – kan försöka igen) */
+export class BankIDNetworkError extends BankIDError {
+  constructor(message: string) {
+    super(message, 'NETWORK_ERROR')
+    this.name = 'BankIDNetworkError'
+  }
+}
+
+/** Timeout */
+export class BankIDTimeoutError extends BankIDError {
+  constructor(message: string) {
+    super(message, 'TIMEOUT')
+    this.name = 'BankIDTimeoutError'
+  }
+}
+
+function isTransientError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : ''
+  if (err instanceof TypeError && /fetch|network/i.test(msg)) return true
+  if (/CONNECTION_REFUSED|Failed to fetch|NetworkError/i.test(msg)) return true
+  return false
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function fetchWithRetry(
+  url: string,
+  init?: RequestInit,
+  retries = MAX_RETRIES
+): Promise<Response> {
+  let lastError: unknown
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fetch(url, init)
+    } catch (err) {
+      lastError = err
+      if (attempt < retries && isTransientError(err)) {
+        await delay(RETRY_DELAY_MS)
+        continue
+      }
+      throw err instanceof Error
+        ? new BankIDNetworkError(err.message || 'Nätverksfel')
+        : new BankIDNetworkError('Nätverksfel')
+    }
+  }
+  throw lastError instanceof Error
+    ? new BankIDNetworkError((lastError as Error).message || 'Nätverksfel')
+    : new BankIDNetworkError('Nätverksfel')
+}
 
 export interface BankIDStatus {
   linked: boolean
+  verified?: boolean
   personalNumber?: string
   linkedAt?: string
 }
@@ -57,8 +129,6 @@ export interface BankIDCollectResponse {
  * Initiera BankID-autentisering
  */
 export async function initiateBankIDAuth(personalNumber?: string): Promise<BankIDAuthResponse> {
-  console.log('🚀 Initiating BankID auth, API URL:', API_BASE_URL)
-  
   // Hämta användarens IP-adress (via backend)
   let endUserIp = '127.0.0.1'
   try {
@@ -70,13 +140,11 @@ export async function initiateBankIDAuth(personalNumber?: string): Promise<BankI
       endUserIp = ipData.ip || '127.0.0.1'
     }
   } catch (error) {
-    console.warn('Could not fetch IP, using default:', error)
+    // Use default IP on fetch failure
   }
   
-  console.log('📤 Sending auth request:', { personalNumber, endUserIp })
-  
   try {
-    const response = await fetch(`${API_BASE_URL}/auth`, {
+    const response = await fetchWithRetry(`${API_BASE_URL}/auth`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -88,8 +156,6 @@ export async function initiateBankIDAuth(personalNumber?: string): Promise<BankI
       } as BankIDAuthRequest),
     })
 
-    console.log('📥 Response status:', response.status)
-
     if (!response.ok) {
       const error = await response.json().catch(() => ({ message: 'Ett fel uppstod' }))
       console.error('❌ Auth error:', error)
@@ -97,16 +163,13 @@ export async function initiateBankIDAuth(personalNumber?: string): Promise<BankI
     }
 
     const data = await response.json()
-    console.log('✅ Auth successful:', data)
     return data
-  } catch (error: any) {
-    console.error('❌ Fetch error:', error)
-    console.error('❌ Error type:', error.constructor.name)
-    console.error('❌ Error message:', error.message)
-    if (error.message.includes('CONNECTION_REFUSED') || error.message.includes('Failed to fetch')) {
-      throw new Error('Backend-servern körs inte. Kontrollera att backend-servern är startad på port 3001.')
+  } catch (error: unknown) {
+    if (isTransientError(error)) {
+      throw new BankIDNetworkError('Backend-servern körs inte. Kontrollera att backend-servern är startad på port 3001.')
     }
-    throw error
+    if (error instanceof BankIDError) throw error
+    throw new BankIDError(error instanceof Error ? error.message : 'Kunde inte initiera BankID-autentisering')
   }
 }
 
@@ -154,6 +217,22 @@ export async function collectBankIDAuth(orderRef: string): Promise<BankIDCollect
   }
 
   return response.json()
+}
+
+/**
+ * Avbryt pågående BankID-order (t.ex. när användaren trycker Avbryt eller vid timeout)
+ */
+export async function cancelBankIDAuth(orderRef: string): Promise<void> {
+  try {
+    await fetchWithRetry(`${API_BASE_URL}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ orderRef }),
+    })
+  } catch {
+    // Ignorera – ordern kan redan vara slutförd eller ogiltig
+  }
 }
 
 /**
@@ -229,12 +308,16 @@ export async function signInWithBankID(bankIDData: {
 export async function linkBankIDToAccount(bankIDData: {
   personalNumber: string
   name: string
+  userId?: string
 }): Promise<{ success: boolean; message?: string }> {
+  const authHeaders = await getAuthHeaders()
+
   const response = await fetch(`${API_BASE_URL}/link`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-    },
+      ...authHeaders,
+    } as Record<string, string>,
     credentials: 'include',
     body: JSON.stringify(bankIDData),
   })
@@ -250,29 +333,58 @@ export async function linkBankIDToAccount(bankIDData: {
 /**
  * Kolla om användaren har kopplat BankID
  */
-export async function checkBankIDStatus(): Promise<BankIDStatus> {
-  const response = await fetch(`${API_BASE_URL}/status`, {
-    method: 'GET',
-    credentials: 'include',
-  })
+export async function checkBankIDStatus(signal?: AbortSignal): Promise<BankIDStatus> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), 3000)
 
-  if (!response.ok) {
-    // Om backend inte är implementerad än, returnera false
-    if (response.status === 404 || response.status === 500) {
-      return { linked: false }
-    }
-    throw new Error('Kunde inte kontrollera BankID-status')
+  if (signal) {
+    signal.addEventListener('abort', () => controller.abort())
   }
 
-  return response.json()
+  try {
+    const token = await getAuthToken()
+    const headers: Record<string, string> = {}
+    if (token) headers.Authorization = `Bearer ${token}`
+
+    const response = await fetchWithRetry(`${API_BASE_URL}/user-status`, {
+      method: 'GET',
+      headers,
+      credentials: 'include',
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      if (response.status === 404 || response.status === 500) {
+        return { linked: false }
+      }
+      throw new BankIDError('Kunde inte kontrollera BankID-status', undefined, response.status)
+    }
+
+    return response.json()
+  } catch (err: unknown) {
+    clearTimeout(timeoutId)
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new BankIDTimeoutError('Timeout vid kontroll av BankID-status')
+    }
+    if (err instanceof BankIDError) throw err
+    if (isTransientError(err)) {
+      throw new BankIDNetworkError(err instanceof Error ? err.message : 'Nätverksfel vid BankID-status')
+    }
+    throw err
+  }
 }
 
 /**
  * Ta bort BankID-koppling
  */
 export async function unlinkBankID(): Promise<{ success: boolean }> {
+  const authHeaders = await getAuthHeaders()
+
   const response = await fetch(`${API_BASE_URL}/unlink`, {
     method: 'POST',
+    headers: { ...authHeaders } as Record<string, string>,
     credentials: 'include',
   })
 
@@ -284,21 +396,9 @@ export async function unlinkBankID(): Promise<{ success: boolean }> {
   return response.json()
 }
 
-/**
- * Hämta användarens IP-adress (via backend)
- */
-async function getUserIP(): Promise<string> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/ip`, {
-      credentials: 'include',
-    })
-    if (response.ok) {
-      const data = await response.json()
-      return data.ip || '127.0.0.1'
-    }
-  } catch (error) {
-    console.warn('Kunde inte hämta IP-adress:', error)
-  }
-  return '127.0.0.1' // Fallback
+async function getAuthHeaders() {
+  const { data } = await supabase.auth.getSession()
+  const token = data.session?.access_token
+  return token ? { Authorization: `Bearer ${token}` } : {}
 }
 

@@ -1,17 +1,19 @@
-import { useState, useEffect, FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useState, useEffect, useRef, FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../lib/supabase'
+import { getMyProfile, updateMyProfile } from '../lib/network'
+import { clearAllTestData, isTestDataToolsEnabled } from '../lib/test-data'
 import { ArrowLeftIcon } from '../components/Icons'
 
 function Profile() {
-  const navigate = useNavigate()
   const { user, signOut } = useAuth()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
+  const [clearingTestData, setClearingTestData] = useState(false)
+  const [testDataMessage, setTestDataMessage] = useState<string | null>(null)
 
   const [profileData, setProfileData] = useState({
     name: '',
@@ -22,63 +24,58 @@ function Profile() {
     postal_code: '',
     city: '',
     country: 'Sverige',
+    bio: '',
+    avatar_url: '',
+    profile_visibility: 'public' as 'public' | 'friends' | 'private',
+    allow_friend_requests: true,
+    show_email: false,
+    show_phone: false,
+    show_address: false,
   })
+
+  const loadingRef = useRef(false)
+  const hasLoadedRef = useRef(false)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     const loadProfile = async () => {
       if (!user) {
         setLoading(false)
+        hasLoadedRef.current = false
         return
       }
 
+      // Om vi redan har laddat profilen för denna användare, hoppa över
+      if (hasLoadedRef.current && loadingRef.current) {
+        return
+      }
+
+      // Förhindra flera samtidiga requests
+      if (loadingRef.current) {
+        return
+      }
+
+      // Avbryt tidigare request om den finns
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+
+      loadingRef.current = true
+      setLoading(true)
+
+      const abortController = new AbortController()
+      abortControllerRef.current = abortController
+
       try {
-        const { data, error } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', user.id)
-          .single()
+        // Använd backend API istället för direkt Supabase-anrop
+        const data = await getMyProfile()
 
-        if (error) {
-          // Om profilen inte finns, skapa en ny
-          if (error.code === 'PGRST116') {
-            console.log('Profile not found, creating new profile...')
-            const { data: newProfile, error: createError } = await supabase
-              .from('users')
-              .insert({
-                id: user.id,
-                name: user.user_metadata?.name || user.email?.split('@')[0] || '',
-                email: user.email || '',
-                onboarding_completed: false,
-              })
-              .select()
-              .single()
+        // Kontrollera om requesten avbröts
+        if (abortController.signal.aborted) {
+          return
+        }
 
-            if (createError) {
-              console.error('Error creating profile:', createError)
-              setError('Kunde inte skapa profil')
-              setLoading(false)
-              return
-            }
-
-            if (newProfile) {
-              setProfileData({
-                name: newProfile.name || '',
-                email: newProfile.email || user.email || '',
-                phone: newProfile.phone || '',
-                personal_number: newProfile.personal_number || '',
-                address: newProfile.address || '',
-                postal_code: newProfile.postal_code || '',
-                city: newProfile.city || '',
-                country: newProfile.country || 'Sverige',
-              })
-            }
-          } else {
-            console.error('Error loading profile:', error)
-            setError('Kunde inte ladda profil')
-            setLoading(false)
-            return
-          }
-        } else if (data) {
+        if (data) {
           setProfileData({
             name: data.name || '',
             email: data.email || user.email || '',
@@ -88,20 +85,74 @@ function Profile() {
             postal_code: data.postal_code || '',
             city: data.city || '',
             country: data.country || 'Sverige',
+            bio: data.bio || '',
+            avatar_url: data.avatar_url || '',
+            profile_visibility: data.profile_visibility || 'public',
+            allow_friend_requests: data.allow_friend_requests !== false,
+            show_email: data.show_email || false,
+            show_phone: data.show_phone || false,
+            show_address: data.show_address || false,
           })
         }
         setLoading(false)
+        hasLoadedRef.current = true
       } catch (err) {
-        console.error('Unexpected error:', err)
-        setError('Ett oväntat fel uppstod')
-        setLoading(false)
+        // Kontrollera om requesten avbröts
+        if (abortController.signal.aborted) {
+          return
+        }
+
+        const errMsg = err instanceof Error ? err.message : undefined
+        // Om det är timeout eller nätverksfel, använd fallback data tyst
+        if (errMsg?.includes('Timeout') ||
+            errMsg?.includes('ERR_INSUFFICIENT_RESOURCES') ||
+            errMsg?.includes('Failed to fetch') ||
+            errMsg?.includes('AbortError')) {
+          // Använd fallback data tyst
+          setProfileData({
+            name: user.user_metadata?.name || user.email?.split('@')[0] || '',
+            email: user.email || '',
+            phone: '',
+            personal_number: '',
+            address: '',
+            postal_code: '',
+            city: '',
+            country: 'Sverige',
+            bio: '',
+            avatar_url: '',
+            profile_visibility: 'public',
+            allow_friend_requests: true,
+            show_email: false,
+            show_phone: false,
+            show_address: false,
+          })
+          setLoading(false)
+          hasLoadedRef.current = true
+        } else {
+          // Andra fel - visa felmeddelande
+          console.error('Unexpected error:', err)
+          setError('Ett oväntat fel uppstod')
+          setLoading(false)
+        }
+      } finally {
+        if (!abortController.signal.aborted) {
+          loadingRef.current = false
+        }
       }
     }
 
     loadProfile()
-  }, [user])
 
-  const handleInputChange = (field: string, value: string) => {
+    // Cleanup: avbryt request om komponenten unmountas eller user ändras
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+      }
+      loadingRef.current = false
+    }
+  }, [user?.id]) // Använd user.id istället för hela user-objektet
+
+  const handleInputChange = (field: string, value: string | boolean) => {
     setProfileData((prev) => ({ ...prev, [field]: value }))
     setSuccess(false)
     setError(null)
@@ -120,36 +171,41 @@ function Profile() {
     }
 
     try {
+      // Använd backend API för att uppdatera profilen
       const updateData: any = {
         name: profileData.name,
         email: profileData.email,
-        updated_at: new Date().toISOString(),
+        phone: profileData.phone || null,
+        address: profileData.address || null,
+        postal_code: profileData.postal_code || null,
+        city: profileData.city || null,
+        country: profileData.country || 'Sverige',
+        bio: profileData.bio || null,
+        avatar_url: profileData.avatar_url || null,
+        profile_visibility: profileData.profile_visibility,
+        allow_friend_requests: profileData.allow_friend_requests,
+        show_email: profileData.show_email,
+        show_phone: profileData.show_phone,
+        show_address: profileData.show_address,
       }
 
-      // Lägg bara till fält som har värden
-      if (profileData.phone) updateData.phone = profileData.phone
-      if (profileData.personal_number) updateData.personal_number = profileData.personal_number
-      if (profileData.address) updateData.address = profileData.address
-      if (profileData.postal_code) updateData.postal_code = profileData.postal_code
-      if (profileData.city) updateData.city = profileData.city
-      if (profileData.country) updateData.country = profileData.country
+      // Lägg till personnummer om det finns
+      if (profileData.personal_number && profileData.personal_number.trim() !== '') {
+        updateData.personal_number = profileData.personal_number
+      }
 
-      const { error: updateError } = await supabase
-        .from('users')
-        .update(updateData)
-        .eq('id', user.id)
-
-      if (updateError) {
-        console.error('Update error:', updateError)
-        setError('Kunde inte spara ändringar. Försök igen.')
+      try {
+        await updateMyProfile(updateData)
+        setSuccess(true)
+        setIsEditing(false)
         setSaving(false)
-        return
+        setTimeout(() => setSuccess(false), 3000)
+      } catch (updateError: any) {
+        console.error('Update error:', updateError)
+        const errorMessage = updateError.message || 'Kunde inte spara ändringar. Försök igen.'
+        setError(errorMessage)
+        setSaving(false)
       }
-
-      setSuccess(true)
-      setIsEditing(false)
-      setSaving(false)
-      setTimeout(() => setSuccess(false), 3000)
     } catch (err) {
       console.error('Unexpected error:', err)
       setError('Ett oväntat fel uppstod. Försök igen.')
@@ -160,7 +216,27 @@ function Profile() {
   const handleLogout = async () => {
     if (window.confirm('Är du säker på att du vill logga ut?')) {
       await signOut()
-      navigate('/')
+      // Vänta lite för att säkerställa att auth state är uppdaterad
+      await new Promise(resolve => setTimeout(resolve, 100))
+      // Navigera till root och använd replace för att förhindra back-navigation
+      window.location.href = '/'
+    }
+  }
+
+  const handleClearTestData = async () => {
+    setTestDataMessage(null)
+    const msg =
+      'Detta tar bort all synkad data: bankkonton, kort, lån, investeringar, fordon, båtar, försäkringar, fastigheter, dokument, nätverk, meddelanden m.m. Din profil och inloggning behålls.\n\nFortsätt?'
+    if (!window.confirm(msg)) return
+    if (!window.confirm('Sista chansen – rensa all testdata nu?')) return
+    setClearingTestData(true)
+    try {
+      const r = await clearAllTestData()
+      setTestDataMessage(`Rensat (${r.totalRows} rader totalt). Ladda om sidor för att se tomma listor.`)
+    } catch (e) {
+      setTestDataMessage(e instanceof Error ? e.message : 'Kunde inte rensa data.')
+    } finally {
+      setClearingTestData(false)
     }
   }
 
@@ -286,7 +362,7 @@ function Profile() {
       </div>
 
       {/* Content */}
-      <div style={{ padding: '24px 16px 120px', maxWidth: '343px', margin: '0 auto' }}>
+      <div style={{ padding: '24px 16px 120px', maxWidth: 'calc(100% - 32px)', margin: '0 auto' }}>
         {error && (
           <div
             style={{
@@ -460,6 +536,59 @@ function Profile() {
               </button>
             </div>
 
+
+            {isTestDataToolsEnabled() && (
+              <div
+                style={{
+                  marginTop: '24px',
+                  padding: '16px',
+                  borderRadius: '12px',
+                  border: '2px dashed #E8A598',
+                  background: '#FFF8F6',
+                }}
+              >
+                <p
+                  style={{
+                    margin: '0 0 8px 0',
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    color: '#8B4513',
+                  }}
+                >
+                  Testläge
+                </p>
+                <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#5C4033', lineHeight: 1.45 }}>
+                  Rensa all appdata som hör till ditt konto så du kan testa &quot;hämta igen&quot; från början.
+                  Kräver <code style={{ fontSize: '12px' }}>ENABLE_TEST_DATA_TOOLS=true</code> i backend.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleClearTestData}
+                  disabled={clearingTestData}
+                  style={{
+                    width: '100%',
+                    height: '48px',
+                    borderRadius: '10px',
+                    border: 'none',
+                    background: clearingTestData ? '#CCC' : '#C44',
+                    color: '#FFF',
+                    fontSize: '15px',
+                    fontWeight: 700,
+                    cursor: clearingTestData ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {clearingTestData ? 'Rensar…' : 'Rensa all min testdata'}
+                </button>
+                {testDataMessage && (
+                  <p
+                    role="status"
+                    style={{ margin: '12px 0 0 0', fontSize: '13px', color: '#2A2A2A' }}
+                  >
+                    {testDataMessage}
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Logout Button */}
             <button
@@ -688,6 +817,140 @@ function Profile() {
                       <option value="Danmark">Danmark</option>
                       <option value="Finland">Finland</option>
                     </select>
+                  </label>
+                </div>
+              </div>
+
+              {/* Sociala inställningar */}
+              <div
+                style={{
+                  background: '#F7FBFC',
+                  borderRadius: '12px',
+                  padding: '20px',
+                  border: '1px solid #E6F1F4',
+                }}
+              >
+                <h3
+                  style={{
+                    margin: '0 0 20px 0',
+                    fontSize: '18px',
+                    fontWeight: 700,
+                    color: '#146D7B',
+                  }}
+                >
+                  Sociala inställningar
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 600, color: '#2A2A2A' }}>
+                      Biografi <span style={{ color: '#767676', fontWeight: 400 }}>(valfritt)</span>
+                    </span>
+                    <textarea
+                      value={profileData.bio}
+                      onChange={(e) => handleInputChange('bio', e.target.value)}
+                      placeholder="Berätta lite om dig själv..."
+                      rows={4}
+                      style={{
+                        borderRadius: '12px',
+                        border: '2px solid #E6F1F4',
+                        padding: '12px 16px',
+                        fontSize: '16px',
+                        outline: 'none',
+                        resize: 'vertical',
+                        fontFamily: 'inherit',
+                      }}
+                    />
+                  </label>
+
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 600, color: '#2A2A2A' }}>
+                      Profilbild URL <span style={{ color: '#767676', fontWeight: 400 }}>(valfritt)</span>
+                    </span>
+                    <input
+                      type="url"
+                      value={profileData.avatar_url}
+                      onChange={(e) => handleInputChange('avatar_url', e.target.value)}
+                      placeholder="https://example.com/avatar.jpg"
+                      style={{
+                        height: '48px',
+                        borderRadius: '12px',
+                        border: '2px solid #E6F1F4',
+                        padding: '0 16px',
+                        fontSize: '16px',
+                        outline: 'none',
+                      }}
+                    />
+                  </label>
+
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <span style={{ fontSize: '14px', fontWeight: 600, color: '#2A2A2A' }}>
+                      Profilsynlighet
+                    </span>
+                    <select
+                      value={profileData.profile_visibility}
+                      onChange={(e) => handleInputChange('profile_visibility', e.target.value)}
+                      style={{
+                        height: '48px',
+                        borderRadius: '12px',
+                        border: '2px solid #E6F1F4',
+                        padding: '0 16px',
+                        fontSize: '16px',
+                        outline: 'none',
+                        background: '#FFFFFF',
+                      }}
+                    >
+                      <option value="public">Publik - Alla kan se min profil</option>
+                      <option value="friends">Vänner - Endast vänner kan se min profil</option>
+                      <option value="private">Privat - Ingen kan se min profil</option>
+                    </select>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={profileData.allow_friend_requests === true}
+                      onChange={(e) => handleInputChange('allow_friend_requests', e.target.checked)}
+                      style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+                    />
+                    <span style={{ fontSize: '14px', fontWeight: 500, color: '#2A2A2A' }}>
+                      Tillåt vänförfrågningar
+                    </span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={profileData.show_email === true}
+                      onChange={(e) => handleInputChange('show_email', e.target.checked)}
+                      style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+                    />
+                    <span style={{ fontSize: '14px', fontWeight: 500, color: '#2A2A2A' }}>
+                      Visa e-postadress för vänner
+                    </span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={profileData.show_phone === true}
+                      onChange={(e) => handleInputChange('show_phone', e.target.checked)}
+                      style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+                    />
+                    <span style={{ fontSize: '14px', fontWeight: 500, color: '#2A2A2A' }}>
+                      Visa telefonnummer för vänner
+                    </span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={profileData.show_address === true}
+                      onChange={(e) => handleInputChange('show_address', e.target.checked)}
+                      style={{ width: '20px', height: '20px', cursor: 'pointer' }}
+                    />
+                    <span style={{ fontSize: '14px', fontWeight: 500, color: '#2A2A2A' }}>
+                      Visa adress för vänner
+                    </span>
                   </label>
                 </div>
               </div>

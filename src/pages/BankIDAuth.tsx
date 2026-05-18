@@ -41,17 +41,14 @@ function BankIDAuth() {
     // Vi startar bara polling när status går från idle till pending
     // och låter den köra även när status blir 'collecting'
     if (orderRef && status === 'pending' && !pollingActiveRef.current) {
-      console.log('🚀 useEffect: orderRef och status=pending, startar polling')
       startPolling()
     } else if ((status === 'success' || status === 'failed' || status === 'idle') && pollingActiveRef.current) {
-      console.log('⏸️ useEffect: stoppar polling', { hasOrderRef: !!orderRef, status })
       stopPolling()
     }
 
     return () => {
       // Stoppa polling bara när komponenten unmountas eller när vi går tillbaka till idle
       if (status === 'idle') {
-        console.log('🧹 useEffect cleanup: stoppar polling (idle)')
         stopPolling()
       }
     }
@@ -59,34 +56,23 @@ function BankIDAuth() {
 
   const startPolling = () => {
     if (intervalRef.current || pollingActiveRef.current) {
-      console.log('⚠️ Polling redan igång, hoppar över')
       return
     }
 
     pollingActiveRef.current = true
-    console.log('🔄 Startar polling för orderRef:', orderRef?.substring(0, 20) + '...')
 
     intervalRef.current = setInterval(async () => {
       if (!orderRef) {
-        console.log('⚠️ Ingen orderRef, stoppar polling')
         stopPolling()
         return
       }
 
       try {
-        console.log('📡 Pollar BankID status för orderRef:', orderRef.substring(0, 20) + '...')
         // Uppdatera status till 'collecting' om den inte redan är det
         setStatus(prevStatus => prevStatus === 'pending' ? 'collecting' : prevStatus)
         const result = await collectBankIDAuth(orderRef)
 
-        console.log('📥 BankID collect result:', {
-          status: result.status,
-          hasCompletionData: !!result.completionData,
-          hintCode: result.hintCode
-        })
-
         if (result.status === 'complete' && result.completionData) {
-          console.log('✅ BankID signering klar! Anropar handleSuccess...')
           stopPolling()
           await handleSuccess(result)
         } else if (result.status === 'failed') {
@@ -94,11 +80,9 @@ function BankIDAuth() {
           stopPolling()
           setError('BankID-autentisering misslyckades. Försök igen.')
           setStatus('failed')
-        } else {
-          console.log('⏳ BankID status:', result.status, '- fortsätter polla...')
         }
         // Om status är 'pending', fortsätt polla
-      } catch (err: any) {
+      } catch (err) {
         console.error('❌ Error collecting BankID status:', err)
         // Fortsätt polla även vid fel (kan vara tillfälligt)
       }
@@ -110,18 +94,10 @@ function BankIDAuth() {
     if (intervalRef.current) {
       clearInterval(intervalRef.current)
       intervalRef.current = null
-      console.log('🛑 Polling stoppad')
     }
   }
 
   const handleSuccess = async (result: BankIDCollectResponse) => {
-    console.log('🎉 handleSuccess anropad med result:', {
-      hasCompletionData: !!result.completionData,
-      hasUser: !!result.completionData?.user,
-      personalNumber: result.completionData?.user?.personalNumber,
-      name: result.completionData?.user?.name
-    })
-
     if (!result.completionData?.user) {
       console.error('❌ Saknar user data i completionData')
       setError('Kunde inte hämta användarinformation från BankID')
@@ -131,30 +107,72 @@ function BankIDAuth() {
 
     try {
       setLoading(true)
-      console.log('🔄 Startar signup/signin med BankID...')
-      
+
       if (isSignUp && !user) {
         // Skapa nytt konto med BankID
-        const { error } = await signUpWithBankID(
+        const { error: signUpError, ...signUpResult } = await signUpWithBankID(
           result.completionData.user.personalNumber,
           result.completionData.user.name
         )
-        
-        if (error) {
-          setError(error.message || 'Kunde inte skapa konto med BankID')
+
+        if (signUpError) {
+          setError(signUpError.message || 'Kunde inte skapa konto med BankID')
           setStatus('failed')
           return
         }
+
+        // Om backend returnerade en magic link, använd token för att skapa session
+        if (signUpResult.actionLink && signUpResult.token) {
+          setStatus('success')
+          try {
+            // Försök verifiera token och skapa session direkt
+            if (signUpResult.tokenHash) {
+              const { data: { session }, error: verifyError } = await supabase.auth.verifyOtp({
+                token_hash: signUpResult.tokenHash,
+                type: 'magiclink'
+              })
+
+              if (session && !verifyError) {
+                navigate('/home')
+                return
+              }
+            }
+
+            // Fallback: använd actionLink för redirect (token-only verifiering kräver email)
+            if (signUpResult.actionLink) {
+              window.location.href = signUpResult.actionLink
+              return
+            }
+          } catch (tokenError) {
+            if (import.meta.env.DEV) console.error('Token verification error:', tokenError)
+            if (signUpResult.actionLink) {
+              window.location.href = signUpResult.actionLink
+              return
+            }
+          }
+        }
         
+        // Fallback: vänta lite och kolla om session skapades
         setStatus('success')
-        setTimeout(() => {
-          navigate('/onboarding')
-        }, 2000)
+        setTimeout(async () => {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (session) {
+            navigate('/home')
+          } else {
+            // Om ingen session, försök använda actionLink
+            if (signUpResult.actionLink) {
+              window.location.href = signUpResult.actionLink
+            } else {
+              navigate('/home')
+            }
+          }
+        }, 1000)
       } else if (user) {
         // Koppla BankID till befintligt konto
         await linkBankIDToAccount({
           personalNumber: result.completionData.user.personalNumber,
           name: result.completionData.user.name,
+          userId: user.id,
         })
 
         setStatus('success')
@@ -178,52 +196,33 @@ function BankIDAuth() {
         if (signInResult.actionLink) {
           setStatus('success')
           try {
-            // Försök verifiera token och skapa session direkt om token finns
-            if (signInResult.token) {
-              // Försök med token_hash först om det finns
-              if (signInResult.tokenHash) {
-                const { data: { session }, error: verifyError } = await supabase.auth.verifyOtp({
-                  token_hash: signInResult.tokenHash,
-                  type: 'magiclink'
-                })
-
-                if (session && !verifyError) {
-                  console.log('✅ Session skapad via token_hash')
-                  navigate('/home')
-                  return
-                }
-              }
-              
-              // Försök med token direkt
+            // Försök verifiera token och skapa session direkt om tokenHash finns
+            if (signInResult.tokenHash) {
               const { data: { session }, error: verifyError } = await supabase.auth.verifyOtp({
-                token: signInResult.token,
+                token_hash: signInResult.tokenHash,
                 type: 'magiclink'
               })
 
               if (session && !verifyError) {
-                console.log('✅ Session skapad via token')
                 navigate('/home')
                 return
               }
             }
-            
+
             // Om verifyOtp inte fungerade, vänta lite och kolla om session skapades ändå
             await new Promise(resolve => setTimeout(resolve, 1000))
             const { data: { session: retrySession } } = await supabase.auth.getSession()
-            
+
             if (retrySession) {
-              console.log('✅ Session hittad efter väntan')
               navigate('/home')
               return
             }
-            
+
             // Fallback: navigera till actionLink
-            console.log('⚠️ Kunde inte skapa session direkt, navigerar till actionLink')
             window.location.href = signInResult.actionLink
             return
           } catch (tokenError) {
-            console.warn('Token verification error, navigerar till actionLink:', tokenError)
-            // Fallback: navigera till actionLink
+            if (import.meta.env.DEV) console.warn('Token verification error, navigerar till actionLink:', tokenError)
             window.location.href = signInResult.actionLink
             return
           }
@@ -241,8 +240,8 @@ function BankIDAuth() {
           }
         }, 1000)
       }
-    } catch (err: any) {
-      setError(err.message || 'Ett fel uppstod')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ett fel uppstod')
       setStatus('failed')
     } finally {
       setLoading(false)
@@ -255,43 +254,29 @@ function BankIDAuth() {
       // Använd backend för att generera QR-kod strängen
       // Backend använder BankID's egen QrGenerator-instans med rätt starttid
       const qrString = await generateQRCode(orderRef)
-      
-      console.log('🔄 QR-kod genererad från BankID:s egen generator')
-      console.log('📱 QR-kod detaljer:', {
-        length: qrString.length,
-        startsWith: qrString.substring(0, 20),
-        format: qrString.startsWith('bankid.') ? '✅ Korrekt format' : '❌ Fel format',
-        parts: qrString.split('.').length,
-        fullQR: qrString // Visa hela QR-koden för debugging
-      })
-      
-      // Generera QR-kod bild
+
+      // Generera QR-kod bild (svart på vit – branschstandard)
       const qrDataUrl = await QRCode.toDataURL(qrString, {
         width: 200,
         margin: 2,
         color: {
-          dark: '#146D7B',
+          dark: '#000000',
           light: '#FFFFFF'
         }
       })
-      
-      console.log('✅ QR-kod bild genererad, längd:', qrDataUrl.length)
-      
+
       setQrCode(qrString)
       setQrImageUrl(qrDataUrl)
-    } catch (error: any) {
-      console.error('❌ Error generating QR code:', error)
-      console.error('❌ Error details:', error)
-      
+    } catch (error) {
+      console.error('Error generating QR code:', error)
+
       // Om QR-generatorn inte finns ännu och vi inte har försökt för många gånger, försök igen
       if (error.message?.includes('QR-generator hittades inte') && retryCount < 5) {
-        console.log(`⏳ QR-generator inte klar än, försöker igen om 500ms (försök ${retryCount + 1}/5)...`)
         setTimeout(() => {
           generateQRCodeImage(orderRef, retryCount + 1)
         }, 500)
       } else if (error.message?.includes('QR-generator hittades inte') && retryCount >= 5) {
         // Efter 5 försök, försök generera QR-koden lokalt om vi har token och secret
-        console.log('⚠️ Backend har inte QR-generatorn, försöker generera lokalt...')
         if (qrStartToken && qrStartSecret && qrStartTime) {
           try {
             const now = Date.now()
@@ -321,14 +306,13 @@ function BankIDAuth() {
               width: 200,
               margin: 2,
               color: {
-                dark: '#146D7B',
+                dark: '#000000',
                 light: '#FFFFFF'
               }
             })
             
             setQrCode(qrString)
             setQrImageUrl(qrDataUrl)
-            console.log('✅ QR-kod genererad lokalt')
           } catch (localError) {
             console.error('❌ Kunde inte generera QR-kod lokalt:', localError)
           }
@@ -339,8 +323,6 @@ function BankIDAuth() {
 
   // Starta QR-kod uppdatering
   const startQRCodeGeneration = (orderRef: string) => {
-    console.log('🚀 Startar QR-kodgenerering med BankID:s egen generator, orderRef:', orderRef.substring(0, 20) + '...')
-    
     // Vänta lite innan första försöket för att ge backend tid att spara QR-generatorn i cache
     setTimeout(() => {
       // Generera första QR-koden
@@ -366,31 +348,17 @@ function BankIDAuth() {
       const response = await initiateBankIDAuth(personalNumber || undefined)
       setOrderRef(response.orderRef)
 
-      // Spara QR-kod parametrar
-      console.log('📱 QR-kod data mottagen:', {
-        hasQrStartToken: !!response.qrStartToken,
-        hasQrStartSecret: !!response.qrStartSecret,
-        hasQrStartTime: !!response.qrStartTime,
-        qrStartToken: response.qrStartToken,
-        qrStartSecret: response.qrStartSecret,
-        qrStartTime: response.qrStartTime
-      })
-      
       if (response.qrStartToken && response.qrStartSecret) {
-        console.log('✅ Startar QR-kodgenerering med BankID:s egen generator...')
         setQrStartToken(response.qrStartToken)
         setQrStartSecret(response.qrStartSecret)
         // Starta QR-kodgenerering med BankID's egen QrGenerator-instans
         startQRCodeGeneration(response.orderRef)
       } else if (response.autoStartToken) {
-        console.log('⚠️ Ingen QR-kod data, använder autoStartToken')
         // Fallback: om QR-kod inte finns, använd autoStartToken för desktop
         setQrCode(response.autoStartToken)
-      } else {
-        console.warn('⚠️ Ingen QR-kod eller autoStartToken mottagen')
       }
-    } catch (err: any) {
-      setError(err.message || 'Kunde inte initiera BankID-autentisering')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Kunde inte initiera BankID-autentisering')
       setStatus('failed')
       setLoading(false)
     } finally {

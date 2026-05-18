@@ -13,24 +13,29 @@ function Settings() {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
+  const [showAbout, setShowAbout] = useState(false)
+
   const settings = [
     { 
       emoji: '🔔', 
       title: 'Notifikationer', 
-      description: 'Hantera notifikationer',
-      onClick: () => {} // TODO: Implementera notifikationsinställningar
+      description: 'Kommer snart',
+      onClick: () => {},
+      disabled: true,
     },
     { 
       emoji: '🔒', 
       title: 'Säkerhet', 
       description: 'Lösenord och säkerhet',
-      onClick: () => setShowSecurity(!showSecurity)
+      onClick: () => setShowSecurity(!showSecurity),
+      disabled: false,
     },
     { 
       emoji: 'ℹ️', 
       title: 'Om appen', 
       description: 'Version och information',
-      onClick: () => {} // TODO: Implementera om-appen
+      onClick: () => setShowAbout(!showAbout),
+      disabled: false,
     },
   ]
 
@@ -85,8 +90,8 @@ function Settings() {
       await refreshBankIDStatus()
       setSuccess('BankID-kopplingen har tagits bort')
       setTimeout(() => setSuccess(null), 3000)
-    } catch (err: any) {
-      setError(err.message || 'Kunde inte ta bort BankID-kopplingen')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Kunde inte ta bort BankID-kopplingen')
     } finally {
       setUnlinking(false)
     }
@@ -102,8 +107,8 @@ function Settings() {
             return (
               <div key={index}>
                 <div 
-                  className="bg-white border border-gray-200 rounded-lg p-4 shadow-card cursor-pointer hover:bg-gray-50 transition-colors"
-                  onClick={setting.onClick}
+                  className={`bg-white border border-gray-200 rounded-lg p-4 shadow-card transition-colors ${setting.disabled ? 'opacity-50 cursor-default' : 'cursor-pointer hover:bg-gray-50'}`}
+                  onClick={setting.disabled ? undefined : setting.onClick}
                 >
                   <div className="flex items-center">
                     <span className="text-xl mr-3">{setting.emoji}</span>
@@ -111,7 +116,9 @@ function Settings() {
                       <h2 className="font-semibold text-text">{setting.title}</h2>
                       <p className="text-sm text-gray-600">{setting.description}</p>
                     </div>
-                    <span className="text-gray-400">{showSecurity && setting.title === 'Säkerhet' ? '▼' : '›'}</span>
+                    <span className="text-gray-400">{
+                      (showSecurity && setting.title === 'Säkerhet') || (showAbout && setting.title === 'Om appen') ? '▼' : '›'
+                    }</span>
                   </div>
                 </div>
 
@@ -222,13 +229,38 @@ function Settings() {
                     </div>
                   </div>
                 )}
+
+                {showAbout && setting.title === 'Om appen' && (
+                  <div className="mt-4 bg-white border border-gray-200 rounded-lg p-6 shadow-card">
+                    <h3 className="text-lg font-semibold text-text mb-4">Om CastleGate</h3>
+                    <div className="space-y-3 text-sm text-gray-600">
+                      <div className="flex justify-between">
+                        <span className="font-medium text-text">Version</span>
+                        <span>1.0.0</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="font-medium text-text">Plattform</span>
+                        <span>Web (React)</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="font-medium text-text">Backend</span>
+                        <span>NestJS</span>
+                      </div>
+                      <div className="pt-3 border-t border-gray-100">
+                        <p className="text-xs text-gray-400">
+                          CastleGate är en digital plattform för att hantera din ekonomi, fastigheter, fordon och dokument på ett ställe.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )
           })}
         </div>
 
         <div className="mt-8 text-center text-sm text-gray-500">
-          <p>Castlegate B2C v1.0.0</p>
+          <p>CastleGate B2C v1.0.0</p>
         </div>
       </div>
     </div>

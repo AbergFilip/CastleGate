@@ -1,71 +1,158 @@
-import { useState } from 'react'
-import { DocumentIcon, MailIcon, CartIcon, BellIcon, UsersIcon } from '../components/Icons'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { DocumentIcon, MailIcon, CartIcon, BellIcon, UsersIcon, XIcon } from '../components/Icons'
+import {
+  getNotifications,
+  clearAllNotifications,
+  markNotificationAsRead,
+  deleteNotification,
+  type Notification,
+} from '../lib/notifications'
+import { useToast } from '../components/Toast'
+import { Skeleton } from '../components/Skeleton'
 
-const notificationData = [
-  {
-    category: 'Ekonomi',
-    icon: DocumentIcon,
-    title: 'Du har en ny faktura att betala',
-    description: 'Fakturan är från Telenor och har förfallodatum 2021-03-24.',
-    time: '25 min',
-  },
-  {
-    category: 'Brevlåda',
-    icon: MailIcon,
-    title: 'Jonas Karlsson',
-    description: 'Kan du titta på de dokumenten jag skickade till dig? Och glöm inte att vi...',
-    time: '1 tim',
-  },
-  {
-    category: 'Marknad',
-    icon: CartIcon,
-    title: 'Du har ett nytt erbjudande',
-    description: 'Smeg 50’s style - navy blue',
-    time: '1,5 tim',
-  },
-  {
-    category: 'Ekonomi',
-    icon: DocumentIcon,
-    title: 'Du har fått ersättning för dina annonsplatser',
-    description: 'När du tillåter företag att annonsera till dig får du ersättning som hamnar på ditt ersättningskonto',
-    time: '1,5 tim',
-  },
-  {
-    category: 'Ekonomi',
-    icon: DocumentIcon,
-    title: 'Din lön har kommit',
-    description: 'Nu kan du ta del av din lönespecifikation',
-    time: '2 tim',
-  },
-  {
-    category: 'Nätverk',
-    icon: UsersIcon,
-    title: 'Peter Johansson vill bli en del av ditt nätverk',
-    description: 'Kollega',
-    time: '2 tim',
-  },
-  {
-    category: 'Ekonomi',
-    icon: DocumentIcon,
-    title: 'Du har en obetald faktura som snart kommer att förfalla',
-    description: 'Fakturan är från Telenor och har förfallodatum 2021-03-29.',
-    time: '3 tim',
-  },
-  {
-    category: 'Ekonomi',
-    icon: DocumentIcon,
-    title: 'Du har en obetald faktura som snart kommer att förfalla',
-    description: 'Fakturan är från Telenor och har förfallodatum 2021-03-29.',
-    time: '3 tim',
-  },
-]
+function formatTimeAgo(dateString: string): string {
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+
+  if (diffMins < 1) return 'Nu'
+  if (diffMins < 60) return `${diffMins} min`
+  if (diffHours < 24) return `${diffHours} tim`
+  if (diffDays < 7) return `${diffDays} dag${diffDays > 1 ? 'ar' : ''}`
+  return date.toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' })
+}
+
+function getDayBucket(dateString: string): 'idag' | 'igar' | 'denna_vecka' | 'tidigare' {
+  const date = new Date(dateString)
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const dayMs = 86_400_000
+  const ts = date.getTime()
+  if (ts >= startOfToday) return 'idag'
+  if (ts >= startOfToday - dayMs) return 'igar'
+  if (ts >= startOfToday - 6 * dayMs) return 'denna_vecka'
+  return 'tidigare'
+}
+
+const BUCKET_LABEL: Record<ReturnType<typeof getDayBucket>, string> = {
+  idag: 'Idag',
+  igar: 'Igår',
+  denna_vecka: 'Denna vecka',
+  tidigare: 'Tidigare',
+}
+
+const BUCKET_ORDER: ReturnType<typeof getDayBucket>[] = ['idag', 'igar', 'denna_vecka', 'tidigare']
+
+function getIconForCategory(category: string) {
+  switch (category) {
+    case 'Ekonomi':
+      return DocumentIcon
+    case 'Brevlåda':
+      return MailIcon
+    case 'Marknad':
+      return CartIcon
+    case 'Nätverk':
+      return UsersIcon
+    default:
+      return BellIcon
+  }
+}
+
+function getRouteForCategory(category: string): string | null {
+  switch (category) {
+    case 'Ekonomi': return '/home'
+    case 'Brevlåda': return '/mailbox'
+    case 'Marknad': return '/marketplace'
+    case 'Nätverk': return '/network'
+    case 'Egendomar': return '/properties'
+    default: return null
+  }
+}
+
+function getMessageFromError(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message) return err.message
+  if (typeof err === 'string' && err) return err
+  return fallback
+}
 
 function Notifications() {
-  const [notifications, setNotifications] = useState(notificationData)
+  const navigate = useNavigate()
+  const { showToast } = useToast()
+  const [notifications, setNotifications] = useState<Notification[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleClear = () => {
-    setNotifications([])
+  useEffect(() => {
+    void loadNotifications()
+  }, [])
+
+  async function loadNotifications() {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await getNotifications()
+      setNotifications(data)
+    } catch (err) {
+      console.error('Error loading notifications:', err)
+      setError(getMessageFromError(err, 'Kunde inte ladda notifikationer'))
+    } finally {
+      setLoading(false)
+    }
   }
+
+  async function handleClear() {
+    if (notifications.length === 0) return
+    if (!confirm('Är du säker på att du vill rensa alla notifikationer?')) return
+    try {
+      await clearAllNotifications()
+      setNotifications([])
+    } catch (err) {
+      showToast('Kunde inte rensa notifikationer: ' + getMessageFromError(err, 'Okänt fel'), 'error')
+    }
+  }
+
+  async function handleMarkAsRead(id: string) {
+    try {
+      await markNotificationAsRead(id)
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
+    } catch (err) {
+      console.error('Error marking as read:', err)
+    }
+  }
+
+  async function handleDelete(id: string) {
+    try {
+      await deleteNotification(id)
+      setNotifications((prev) => prev.filter((n) => n.id !== id))
+    } catch (err) {
+      showToast('Kunde inte ta bort notifikation: ' + getMessageFromError(err, 'Okänt fel'), 'error')
+    }
+  }
+
+  function handleCardActivate(notification: Notification) {
+    if (!notification.read) void handleMarkAsRead(notification.id)
+    const route = getRouteForCategory(notification.category)
+    if (route) navigate(route)
+  }
+
+  const unreadCount = useMemo(
+    () => notifications.filter((n) => !n.read).length,
+    [notifications],
+  )
+
+  const grouped = useMemo(() => {
+    const groups: Record<ReturnType<typeof getDayBucket>, Notification[]> = {
+      idag: [], igar: [], denna_vecka: [], tidigare: [],
+    }
+    for (const notification of notifications) {
+      groups[getDayBucket(notification.created_at)].push(notification)
+    }
+    return groups
+  }, [notifications])
 
   return (
     <div style={{ background: '#F4F6FF', minHeight: '100vh', width: '100%', position: 'relative', paddingBottom: '120px' }}>
@@ -120,17 +207,36 @@ function Notifications() {
             zIndex: 4,
           }}
         >
-          <h2
-            style={{
-              fontFamily: 'HK Grotesk Pro, Roboto, sans-serif',
-              fontWeight: 700,
-              fontSize: '24px',
-              color: '#FFFFFF',
-              margin: 0,
-            }}
-          >
-            Notiscenter
-          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <h2
+              style={{
+                fontFamily: 'HK Grotesk Pro, Roboto, sans-serif',
+                fontWeight: 700,
+                fontSize: '24px',
+                color: '#FFFFFF',
+                margin: 0,
+              }}
+            >
+              Notiscenter
+            </h2>
+            {unreadCount > 0 && (
+              <span
+                aria-label={`${unreadCount} olästa`}
+                style={{
+                  background: '#FFFFFF',
+                  color: '#1A7498',
+                  fontFamily: 'Roboto, sans-serif',
+                  fontWeight: 700,
+                  fontSize: '12px',
+                  borderRadius: '999px',
+                  padding: '2px 10px',
+                  lineHeight: 1.4,
+                }}
+              >
+                {unreadCount}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -143,16 +249,19 @@ function Notifications() {
           background: '#FFFFFF',
           borderTopLeftRadius: '28px',
           borderTopRightRadius: '28px',
-          zIndex: 3,
+          zIndex: 6,
           paddingBottom: '12px',
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '24px 16px 0 16px' }}>
-          <span style={{ fontFamily: 'HK Grotesk Pro, Roboto, sans-serif', fontWeight: 600, fontSize: '16px', color: '#2A2A2A' }}>Senaste händelser</span>
+          <span style={{ fontFamily: 'HK Grotesk Pro, Roboto, sans-serif', fontWeight: 600, fontSize: '16px', color: '#2A2A2A' }}>
+            Senaste händelser
+          </span>
           {notifications.length > 0 && (
             <button
               type='button'
               onClick={handleClear}
+              className='tap-target'
               style={{
                 background: 'transparent',
                 border: 'none',
@@ -161,6 +270,8 @@ function Notifications() {
                 fontWeight: 600,
                 fontSize: '14px',
                 cursor: 'pointer',
+                padding: '8px 12px',
+                borderRadius: '8px',
               }}
             >
               Rensa alla
@@ -176,52 +287,168 @@ function Notifications() {
           padding: '232px 16px 120px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '16px',
+          gap: '24px',
         }}
       >
-        {notifications.length === 0 ? (
-          <div style={{ textAlign: 'center', marginTop: '40px' }}>
-            <BellIcon width={48} height={48} color='#CBD5F5' />
-            <span style={{ fontFamily: 'Roboto, sans-serif', fontSize: '15px', color: '#2A2A2A', opacity: 0.7 }}>Inga notiser just nu</span>
+        {loading ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <Skeleton width='80px' height='13px' style={{ marginBottom: '4px' }} />
+            <NotificationSkeleton />
+            <NotificationSkeleton />
+            <NotificationSkeleton />
+            <Skeleton width='60px' height='13px' style={{ marginTop: '8px', marginBottom: '4px' }} />
+            <NotificationSkeleton />
+            <NotificationSkeleton />
+          </div>
+        ) : error ? (
+          <div style={{ textAlign: 'center', padding: '32px 16px' }}>
+            <span style={{ fontFamily: 'Roboto, sans-serif', fontSize: '15px', color: '#d32f2f', display: 'block', marginBottom: '12px' }}>
+              {error}
+            </span>
+            <button
+              type='button'
+              onClick={() => void loadNotifications()}
+              style={{
+                padding: '10px 18px',
+                borderRadius: '12px',
+                border: '1px solid #1A7498',
+                background: '#1A7498',
+                color: '#FFFFFF',
+                fontFamily: 'Roboto, sans-serif',
+                fontWeight: 600,
+                fontSize: '13px',
+                cursor: 'pointer',
+              }}
+            >
+              Försök igen
+            </button>
+          </div>
+        ) : notifications.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+            <div
+              aria-hidden
+              style={{
+                width: '72px', height: '72px', borderRadius: '50%',
+                background: '#E0F2FE', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              <BellIcon width={36} height={36} color='#1A7498' />
+            </div>
+            <span style={{ fontFamily: 'HK Grotesk Pro, Roboto, sans-serif', fontWeight: 700, fontSize: '17px', color: '#2A2A2A' }}>
+              Allt är lugnt
+            </span>
+            <span style={{ fontFamily: 'Roboto, sans-serif', fontSize: '14px', color: '#64748B', maxWidth: '260px' }}>
+              Här dyker nya händelser upp – från ekonomi, brevlåda, marknad och ditt nätverk.
+            </span>
           </div>
         ) : (
-          notifications.map((notification, index) => {
-            const IconComponent = notification.icon
+          BUCKET_ORDER.map((bucket) => {
+            const items = grouped[bucket]
+            if (items.length === 0) return null
             return (
-              <div
-                key={`${notification.title}-${index}`}
-                style={{
-                  background: '#FFFFFF',
-                  borderRadius: '16px',
-                  boxShadow: '0px 8px 24px rgba(20, 45, 120, 0.08)',
-                  padding: '16px',
-                  display: 'flex',
-                  gap: '16px',
-                  alignItems: 'flex-start',
-                }}
-              >
+              <section key={bucket} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <div
                   style={{
-                    width: '44px',
-                    height: '44px',
-                    borderRadius: '12px',
-                    background: '#DEEDF4',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
+                    fontFamily: 'Roboto, sans-serif',
+                    fontWeight: 600,
+                    fontSize: '12px',
+                    letterSpacing: '0.06em',
+                    textTransform: 'uppercase',
+                    color: '#64748B',
+                    padding: '0 4px',
                   }}
                 >
-                  <IconComponent width={22} height={22} color='#1A7498' />
+                  {BUCKET_LABEL[bucket]}
                 </div>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 600, fontSize: '15px', color: '#1A7498' }}>{notification.category}</span>
-                    <span style={{ fontFamily: 'Roboto, sans-serif', fontSize: '12px', color: '#94A3B8' }}>{notification.time}</span>
-                  </div>
-                  <span style={{ fontFamily: 'HK Grotesk Pro, Roboto, sans-serif', fontWeight: 600, fontSize: '16px', color: '#2A2A2A' }}>{notification.title}</span>
-                  <span style={{ fontFamily: 'Roboto, sans-serif', fontSize: '13px', color: '#475569', lineHeight: 1.5 }}>{notification.description}</span>
-                </div>
-              </div>
+                {items.map((notification) => {
+                  const IconComponent = getIconForCategory(notification.category)
+                  const isInteractive = !notification.read || getRouteForCategory(notification.category) !== null
+                  return (
+                    <div
+                      key={notification.id}
+                      role={isInteractive ? 'button' : undefined}
+                      tabIndex={isInteractive ? 0 : undefined}
+                      onClick={() => handleCardActivate(notification)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          handleCardActivate(notification)
+                        }
+                      }}
+                      style={{
+                        background: notification.read ? '#FFFFFF' : '#F0F9FF',
+                        borderRadius: '16px',
+                        boxShadow: '0px 8px 24px rgba(20, 45, 120, 0.08)',
+                        padding: '16px',
+                        display: 'flex',
+                        gap: '16px',
+                        alignItems: 'flex-start',
+                        cursor: isInteractive ? 'pointer' : 'default',
+                        position: 'relative',
+                        outline: 'none',
+                      }}
+                    >
+                      {!notification.read && (
+                        <span
+                          aria-hidden
+                          style={{
+                            position: 'absolute', top: '14px', right: '52px',
+                            width: '8px', height: '8px', borderRadius: '50%',
+                            background: '#1A7498',
+                          }}
+                        />
+                      )}
+                      <div
+                        style={{
+                          width: '44px', height: '44px', borderRadius: '12px',
+                          background: '#DEEDF4', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <IconComponent width={22} height={22} color='#1A7498' />
+                      </div>
+                      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px', minWidth: 0 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 600, fontSize: '15px', color: '#1A7498' }}>
+                            {notification.category}
+                          </span>
+                          <span style={{ fontFamily: 'Roboto, sans-serif', fontSize: '12px', color: '#94A3B8', flexShrink: 0 }}>
+                            {formatTimeAgo(notification.created_at)}
+                          </span>
+                        </div>
+                        <span style={{ fontFamily: 'HK Grotesk Pro, Roboto, sans-serif', fontWeight: 600, fontSize: '16px', color: '#2A2A2A' }}>
+                          {notification.title}
+                        </span>
+                        {notification.description && (
+                          <span style={{ fontFamily: 'Roboto, sans-serif', fontSize: '13px', color: '#475569', lineHeight: 1.5 }}>
+                            {notification.description}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type='button'
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          void handleDelete(notification.id)
+                        }}
+                        aria-label='Ta bort notifikation'
+                        className='tap-target'
+                        style={{
+                          background: 'transparent', border: 'none',
+                          padding: '8px', cursor: 'pointer',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          minWidth: '36px', minHeight: '36px',
+                          borderRadius: '8px',
+                          color: '#94A3B8',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <XIcon width={16} height={16} color='#94A3B8' />
+                      </button>
+                    </div>
+                  )
+                })}
+              </section>
             )
           })
         )}
@@ -230,5 +457,27 @@ function Notifications() {
   )
 }
 
-export default Notifications
+function NotificationSkeleton() {
+  return (
+    <div
+      style={{
+        background: '#FFFFFF',
+        borderRadius: '16px',
+        boxShadow: '0px 8px 24px rgba(20, 45, 120, 0.08)',
+        padding: '16px',
+        display: 'flex',
+        gap: '16px',
+        alignItems: 'flex-start',
+      }}
+    >
+      <Skeleton width='44px' height='44px' borderRadius='12px' />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        <Skeleton width='40%' height='12px' />
+        <Skeleton width='80%' height='14px' />
+        <Skeleton width='60%' height='12px' />
+      </div>
+    </div>
+  )
+}
 
+export default Notifications

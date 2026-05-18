@@ -1,15 +1,125 @@
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-
-const emergencyContacts = [{ name: 'Mia Petterson', relation: 'Fru' }]
+import { getIceContacts, createIceContact, updateIceContact, deleteIceContact } from '../lib/documents'
+import { Modal, FormField, FormTextarea, Button } from '../components/Modal'
+import { useToast } from '../components/Toast'
 
 function InCaseOfEmergency() {
   const navigate = useNavigate()
+  const { showToast } = useToast()
+  const [contacts, setContacts] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [showAddModal, setShowAddModal] = useState(false)
+  const [formData, setFormData] = useState({
+    name: '',
+    relation: '',
+    phone: '',
+    email: '',
+    address: '',
+    notes: '',
+  })
+
+  useEffect(() => {
+    loadContacts()
+  }, [])
+
+  const loadContacts = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await getIceContacts()
+      setContacts(data)
+    } catch (err) {
+      console.error('Error loading contacts:', err)
+      setError(err instanceof Error ? err.message : 'Kunde inte ladda kontakter')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
     } else {
       navigate('/documents')
+    }
+  }
+
+  const handleEdit = (contact: any) => {
+    setEditingId(contact.id)
+    setFormData({
+      name: contact.name || '',
+      relation: contact.relation || '',
+      phone: contact.phone || '',
+      email: contact.email || '',
+      address: contact.address || '',
+      notes: contact.notes || '',
+    })
+    setShowAddModal(true)
+  }
+
+  const handleAdd = () => {
+    setEditingId(null)
+    setFormData({
+      name: '',
+      relation: '',
+      phone: '',
+      email: '',
+      address: '',
+      notes: '',
+    })
+    setShowAddModal(true)
+  }
+
+  const handleSubmit = async () => {
+    if (!formData.name.trim()) return
+
+    try {
+      if (editingId) {
+        await updateIceContact(editingId, {
+          name: formData.name,
+          relation: formData.relation || undefined,
+          phone: formData.phone || undefined,
+          email: formData.email || undefined,
+          address: formData.address || undefined,
+          notes: formData.notes || undefined,
+        })
+      } else {
+        await createIceContact({
+          name: formData.name,
+          relation: formData.relation || undefined,
+          phone: formData.phone || undefined,
+          email: formData.email || undefined,
+          address: formData.address || undefined,
+          notes: formData.notes || undefined,
+        })
+      }
+      loadContacts()
+      setShowAddModal(false)
+      setEditingId(null)
+      setFormData({
+        name: '',
+        relation: '',
+        phone: '',
+        email: '',
+        address: '',
+        notes: '',
+      })
+    } catch (err) {
+      showToast(`Kunde inte ${editingId ? 'uppdatera' : 'skapa'} kontakt: ` + (err instanceof Error ? err.message : 'Okänt fel'), 'error')
+    }
+  }
+
+  const handleDelete = async (contactId: string) => {
+    if (!confirm('Är du säker på att du vill ta bort denna kontakt?')) return
+
+    try {
+      await deleteIceContact(contactId)
+      loadContacts()
+    } catch (err) {
+      showToast('Kunde inte ta bort kontakt: ' + (err instanceof Error ? err.message : 'Okänt fel'), 'error')
     }
   }
 
@@ -98,25 +208,6 @@ function InCaseOfEmergency() {
           >
             In Case of Emergency
           </h2>
-          <button
-            type="button"
-            style={{
-              position: 'absolute',
-              right: '16px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              background: 'transparent',
-              border: 'none',
-              padding: 0,
-              cursor: 'pointer',
-            }}
-            aria-label="Redigera"
-          >
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path d="M11.1083 3.44167L3.33333 11.2167V13.75H5.86667L13.6417 5.97501L11.1083 3.44167Z" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M14.525 5.05834L12.45 3" stroke="#FFFFFF" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
         </div>
       </div>
 
@@ -144,22 +235,124 @@ function InCaseOfEmergency() {
           gap: '24px',
         }}
       >
-        <section style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <h3
-            style={{
-              margin: 0,
-              fontFamily: 'HK Grotesk Pro, Roboto, sans-serif',
-              fontWeight: 600,
-              fontSize: '16px',
-              color: '#2A2A2A',
-            }}
-          >
-            Ansvarig person
-          </h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            {emergencyContacts.map((contact) => (
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#2A2A2A', opacity: 0.6 }}>
+            Laddar kontakter...
+          </div>
+        ) : error ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#d32f2f' }}>
+            {error}
+          </div>
+        ) : (
+          <section style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <h3
+              style={{
+                margin: 0,
+                fontFamily: 'HK Grotesk Pro, Roboto, sans-serif',
+                fontWeight: 600,
+                fontSize: '16px',
+                color: '#2A2A2A',
+              }}
+            >
+              Ansvarig person
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {contacts.map((contact) => (
+                <div
+                  key={contact.id}
+                  style={{
+                    width: '100%',
+                    background: '#FFFFFF',
+                    borderRadius: '16px',
+                    boxShadow: '0px 8px 24px rgba(20, 45, 120, 0.08)',
+                    padding: '14px 18px',
+                    display: 'flex',
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    boxSizing: 'border-box',
+                  }}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1 }}>
+                    <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 600, fontSize: '16px', color: '#2A2A2A' }}>
+                      {contact.name}
+                    </span>
+                    {contact.relation && (
+                      <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 500, fontSize: '14px', color: '#2A2A2A', opacity: 0.75 }}>
+                        {contact.relation}
+                      </span>
+                    )}
+                    {contact.phone && (
+                      <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 400, fontSize: '14px', color: '#2A2A2A', opacity: 0.7 }}>
+                        📞 {contact.phone}
+                      </span>
+                    )}
+                    {contact.email && (
+                      <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 400, fontSize: '14px', color: '#2A2A2A', opacity: 0.7 }}>
+                        ✉️ {contact.email}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <button
+                      onClick={() => handleEdit(contact)}
+                      disabled={editingId === contact.id}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        padding: '4px',
+                        cursor: editingId === contact.id ? 'wait' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                      aria-label="Redigera"
+                    >
+                      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path
+                          d="M11.1083 3.44167L3.33333 11.2167V13.75H5.86667L13.6417 5.97501L11.1083 3.44167Z"
+                          stroke="#1C3C9B"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                        <path
+                          d="M14.525 5.05834L12.45 3"
+                          stroke="#1C3C9B"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={() => handleDelete(contact.id)}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        padding: '4px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                      }}
+                      aria-label="Ta bort"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path
+                          d="M4 4L12 12M4 12L12 4"
+                          stroke="#d32f2f"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    </button>
+                    <svg width="6" height="12" viewBox="0 0 6 12" fill="none">
+                      <path d="M1 1L5 6L1 11" stroke="#1C3C9B" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  </div>
+                </div>
+              ))}
               <div
-                key={contact.name}
+                onClick={handleAdd}
                 style={{
                   width: '100%',
                   background: '#FFFFFF',
@@ -171,39 +364,105 @@ function InCaseOfEmergency() {
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   boxSizing: 'border-box',
+                  cursor: 'pointer',
+                  border: '2px dashed #E3ECFF',
                 }}
               >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 600, fontSize: '16px', color: '#2A2A2A' }}>{contact.name}</span>
-                  <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 500, fontSize: '14px', color: '#2A2A2A', opacity: 0.75 }}>{contact.relation}</span>
-                </div>
-                <svg width="6" height="12" viewBox="0 0 6 12" fill="none">
-                  <path d="M1 1L5 6L1 11" stroke="#1C3C9B" strokeWidth="2" strokeLinecap="round" />
+                <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 500, fontSize: '15px', color: '#1C3C9B' }}>
+                  Lägg till en person
+                </span>
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path d="M6 1V11M1 6H11" stroke="#1C3C9B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </div>
-            ))}
-            <div
-              style={{
-                width: '100%',
-                background: '#FFFFFF',
-                borderRadius: '16px',
-                boxShadow: '0px 8px 24px rgba(20, 45, 120, 0.08)',
-                padding: '14px 18px',
-                display: 'flex',
-                flexDirection: 'row',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                boxSizing: 'border-box',
-              }}
-            >
-              <span style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 500, fontSize: '15px', color: '#2A2A2A' }}>Lägg till en person</span>
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path d="M6 1V11M1 6H11" stroke="#1C3C9B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
       </div>
+
+      <Modal
+        isOpen={showAddModal}
+        onClose={() => {
+          setShowAddModal(false)
+          setEditingId(null)
+          setFormData({
+            name: '',
+            relation: '',
+            phone: '',
+            email: '',
+            address: '',
+            notes: '',
+          })
+        }}
+        title={editingId ? 'Redigera kontakt' : 'Lägg till kontakt'}
+      >
+        <FormField
+          label="Namn"
+          value={formData.name}
+          onChange={(value) => setFormData({ ...formData, name: value })}
+          placeholder="Ange namn"
+          required
+        />
+        <FormField
+          label="Relation"
+          value={formData.relation}
+          onChange={(value) => setFormData({ ...formData, relation: value })}
+          placeholder="t.ex. Fru, Make, Barn"
+        />
+        <FormField
+          label="Telefon"
+          value={formData.phone}
+          onChange={(value) => setFormData({ ...formData, phone: value })}
+          placeholder="Ange telefonnummer"
+          type="tel"
+        />
+        <FormField
+          label="E-post"
+          value={formData.email}
+          onChange={(value) => setFormData({ ...formData, email: value })}
+          placeholder="Ange e-postadress"
+          type="email"
+        />
+        <FormField
+          label="Adress"
+          value={formData.address}
+          onChange={(value) => setFormData({ ...formData, address: value })}
+          placeholder="Ange adress"
+        />
+        <FormTextarea
+          label="Anteckningar"
+          value={formData.notes}
+          onChange={(value) => setFormData({ ...formData, notes: value })}
+          placeholder="Lägg till anteckningar (valfritt)"
+          rows={3}
+        />
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', marginTop: '24px' }}>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setShowAddModal(false)
+              setEditingId(null)
+              setFormData({
+                name: '',
+                relation: '',
+                phone: '',
+                email: '',
+                address: '',
+                notes: '',
+              })
+            }}
+          >
+            Avbryt
+          </Button>
+          <Button
+            variant="primary"
+            onClick={handleSubmit}
+            disabled={!formData.name.trim()}
+          >
+            {editingId ? 'Uppdatera' : 'Spara'}
+          </Button>
+        </div>
+      </Modal>
     </div>
   )
 }

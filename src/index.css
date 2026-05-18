@@ -4,6 +4,190 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes fadeSlideUp {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes fadeOnly {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-card {
+  animation: fadeOnly 0.22s linear both;
+}
+
+.animate-card:nth-child(1) { animation-delay: 0ms; }
+.animate-card:nth-child(2) { animation-delay: 18ms; }
+.animate-card:nth-child(3) { animation-delay: 36ms; }
+.animate-card:nth-child(4) { animation-delay: 54ms; }
+.animate-card:nth-child(5) { animation-delay: 72ms; }
+.animate-card:nth-child(6) { animation-delay: 90ms; }
+.animate-card:nth-child(7) { animation-delay: 108ms; }
+.animate-card:nth-child(8) { animation-delay: 126ms; }
+.animate-card:nth-child(9) { animation-delay: 144ms; }
+.animate-card:nth-child(10) { animation-delay: 162ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-card,
+  .animate-section,
+  .animate-fade {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-fade {
+  animation: fadeIn 0.35s cubic-bezier(0.25, 0.1, 0.25, 1) both;
+}
+
+.animate-section {
+  animation: fadeOnly 0.24s linear both;
+}
+
+.animate-section:nth-child(1) { animation-delay: 0ms; }
+.animate-section:nth-child(2) { animation-delay: 30ms; }
+.animate-section:nth-child(3) { animation-delay: 60ms; }
+.animate-section:nth-child(4) { animation-delay: 90ms; }
+.animate-section:nth-child(5) { animation-delay: 120ms; }
+
+/* Micro-interactions */
+button, [role="button"] {
+  transition: transform 0.15s cubic-bezier(0.25, 0.1, 0.25, 1), opacity 0.15s ease;
+}
+
+button:active, [role="button"]:active {
+  transform: scale(0.97);
+}
+
+a[style*="borderRadius"], a[style*="boxShadow"] {
+  transition: box-shadow 0.2s ease, transform 0.15s cubic-bezier(0.25, 0.1, 0.25, 1) !important;
+}
+
+a[style*="borderRadius"]:active, a[style*="boxShadow"]:active {
+  transform: scale(0.98) !important;
+}
+
+/* Reusable hover-lift som fungerar både på mus och touch.
+   På touch-enheter triggas :active istället. */
+.hover-lift {
+  transition: transform 0.18s cubic-bezier(0.25, 0.1, 0.25, 1),
+              box-shadow 0.2s ease;
+  will-change: transform;
+}
+
+@media (hover: hover) {
+  .hover-lift:hover {
+    transform: translateY(-1px);
+    box-shadow: 0px 6px 24px rgba(0, 0, 0, 0.12);
+  }
+}
+
+.hover-lift:active {
+  transform: scale(0.99);
+}
+
+/* Tappable touch-targets - säkerställ minst 44x44 px */
+.tap-target {
+  min-height: 44px;
+  min-width: 44px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@keyframes bankFrameIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes sectionBgFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [style*="sectionBgFade"] {
+    animation-duration: 0.01ms !important;
+  }
+}
+
+@keyframes toastSlideIn {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.toast-slide-in {
+  animation: toastSlideIn 0.3s ease-out;
+}
+
+/* Screen-reader only: visually hidden, visible on focus.
+   Modernt mönster (clip-path) som inte orsakar layout shift. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.sr-only:focus {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 9999;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 12px 24px;
+  overflow: visible;
+  clip-path: none;
+  white-space: normal;
+  background: #1C938C;
+  color: #FFFFFF;
+  font-weight: 600;
+  text-decoration: none;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
+}
+
 @layer base {
   html, body {
     margin: 0;
@@ -20,7 +204,8 @@
       sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    background-color: #F5F5F5;
+    background: linear-gradient(180deg, #146D7B 0%, #1C9FB4 60%, #F5F5F5 100%);
+    background-attachment: fixed;
   }
 
   #root {

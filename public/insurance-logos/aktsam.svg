@@ -1,0 +1,5 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <rect width="64" height="64" rx="10" fill="#F2F3F5"/>
+  <path d="M18 22C20 22 23 24 25 28C27 32 30 38 34 42C30 42 25 40 21 36C18 33 16 29 16 26C16 23.5 16.8 22 18 22Z" fill="#E61E2A"/>
+  <text x="43" y="36" text-anchor="middle" fill="#111111" font-family="Georgia, serif" font-size="10">aktsam</text>
+</svg>

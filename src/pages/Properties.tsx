@@ -1,5 +1,7 @@
-import { Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { HomeIcon, PackageIcon, TruckIcon, BoatIcon, SearchIcon } from '../components/Icons'
+import { searchProperties } from '../lib/properties'
 
 // Shield icon with checkmark for Försäkringar
 const InsuranceIcon = ({ width = 24, height = 24, color = '#146D7B' }: { width?: number, height?: number, color?: string }) => (
@@ -10,13 +12,66 @@ const InsuranceIcon = ({ width = 24, height = 24, color = '#146D7B' }: { width?:
 )
 
 function Properties() {
-    const categories = [
-      { title: 'Hem', icon: HomeIcon, path: '/property-home' },
-      { title: 'Inventarier', icon: PackageIcon, path: '/properties/inventories' },
-      { title: 'Fordon', icon: TruckIcon, path: '/properties/vehicles' },
-      { title: 'Båtar', icon: BoatIcon, path: '/properties/boats' },
-      { title: 'Försäkringar', icon: InsuranceIcon, path: '/properties/insurances' },
-    ]
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<any[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const navigate = useNavigate()
+
+  const categories = [
+    { title: 'Hem', icon: HomeIcon, path: '/property-home' },
+    { title: 'Inventarier', icon: PackageIcon, path: '/properties/inventories' },
+    { title: 'Fordon', icon: TruckIcon, path: '/properties/vehicles' },
+    { title: 'Båtar', icon: BoatIcon, path: '/properties/boats' },
+    { title: 'Försäkringar', icon: InsuranceIcon, path: '/properties/insurances' },
+  ]
+
+  // Sök efter properties när användaren skriver
+  useEffect(() => {
+    const searchPropertiesData = async () => {
+      if (searchQuery.trim().length === 0) {
+        setSearchResults([])
+        return
+      }
+
+      setIsSearching(true)
+      try {
+        const results = await searchProperties(searchQuery)
+        setSearchResults(results)
+      } catch (error) {
+        console.error('Error searching properties:', error)
+        setSearchResults([])
+      } finally {
+        setIsSearching(false)
+      }
+    }
+
+    // Debounce sökningen
+    const timeoutId = setTimeout(searchPropertiesData, 300)
+    return () => clearTimeout(timeoutId)
+  }, [searchQuery])
+
+  const handleResultClick = (result: any) => {
+    // Navigera till rätt sida baserat på typ
+    if (result.type === 'inventory') {
+      navigate(`/properties/inventories`, { state: { inventoryId: result.id } })
+    } else if (result.type === 'vehicle') {
+      navigate(`/properties/vehicles`, { state: { vehicleId: result.id } })
+    } else if (result.type === 'boat') {
+      navigate(`/properties/boats`, { state: { boatId: result.id } })
+    } else if (result.type === 'insurance') {
+      navigate(`/properties/insurances`, { state: { insuranceId: result.id } })
+    }
+  }
+
+  const getTypeLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      inventory: 'Inventarie',
+      vehicle: 'Fordon',
+      boat: 'Båt',
+      insurance: 'Försäkring',
+    }
+    return labels[type] || type
+  }
   
 
   return (
@@ -112,7 +167,7 @@ function Properties() {
           <div 
             style={{
               position: 'absolute',
-              width: '343px',
+              width: '100%',
               maxWidth: 'calc(100% - 32px)',
               height: '55px',
               left: '16px',
@@ -125,11 +180,40 @@ function Properties() {
               justifyContent: 'space-between',
               alignItems: 'center',
               padding: '16px',
-              zIndex: 2
+              zIndex: 10
             }}
           >
-            <span style={{ color: '#2A2A2A', opacity: 0.5 }}>Sök bland egendomar</span>
-            <SearchIcon width={20} height={20} color="#2A2A2A" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Sök bland egendomar"
+              aria-label="Sök bland egendomar"
+              style={{
+                flex: 1,
+                border: 'none',
+                outline: 'none',
+                fontFamily: 'Roboto, sans-serif',
+                fontWeight: 400,
+                fontSize: '16px',
+                color: searchQuery ? '#2A2A2A' : '#2A2A2A',
+                opacity: searchQuery ? 1 : 0.5,
+                background: 'transparent',
+              }}
+            />
+            <button
+              style={{
+                background: 'transparent',
+                border: 'none',
+                padding: 0,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+              }}
+              aria-label="Sök"
+            >
+              <SearchIcon width={20} height={20} color="#2A2A2A" />
+            </button>
           </div>
         </div>
 
@@ -150,42 +234,113 @@ function Properties() {
             zIndex: 2
           }}
         >
-          {/* Categories container */}
-          <div 
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'flex-start',
-              gap: '16px',
-              width: '100%',
-              maxWidth: '343px',
-              margin: '0 auto'
-            }}
-          >
-            {/* Categories - with icons */}
-            {categories.map((category, index) => {
-              const IconComponent = category.icon
-              return (
-                <Link
-                key={index}
-                to={category.path}
-                className="w-full rounded-lg shadow-card"
+          {/* Sökresultat */}
+          {searchQuery.trim() && (
+            <div style={{ marginBottom: '16px', maxWidth: 'calc(100% - 32px)', margin: '0 auto 16px' }}>
+              <h3
                 style={{
-                  background: '#FFFFFF',
+                  fontFamily: 'HK Grotesk Pro, Roboto, sans-serif',
+                  fontWeight: 600,
+                  fontSize: '18px',
                   color: '#2A2A2A',
-                  width: '100%',
-                  textDecoration: 'none',
-                    flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '16px',
-                  boxSizing: 'border-box',
-                  borderRadius: '8px',
-                  boxShadow: '0px 4px 24px rgba(0, 0, 0, 0.16)',
-                  cursor: 'pointer'
+                  margin: '0 0 12px 0',
                 }}
               >
-                  <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: '16px' }}>
+                Sökresultat {isSearching && '(söker...)'}
+              </h3>
+              {searchResults.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {searchResults.map((result) => (
+                    <div
+                      key={`${result.type}-${result.id}`}
+                      onClick={() => handleResultClick(result)}
+                      style={{
+                        width: '100%',
+                        background: '#FFFFFF',
+                        borderRadius: '16px',
+                        boxShadow: '0px 4px 24px rgba(0, 0, 0, 0.08)',
+                        padding: '16px',
+                        display: 'flex',
+                        flexDirection: 'row',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 600, fontSize: '16px', color: '#2A2A2A', marginBottom: '4px' }}>
+                          {result.name}
+                        </div>
+                        <div style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 400, fontSize: '12px', color: '#2A2A2A', opacity: 0.5, marginTop: '4px' }}>
+                          {getTypeLabel(result.type)}
+                          {result.category && ` • ${result.category}`}
+                        </div>
+                        {result.detail && (
+                          <div style={{ fontFamily: 'Roboto, sans-serif', fontWeight: 500, fontSize: '14px', color: '#1A7498', marginTop: '4px' }}>
+                            {result.detail}
+                          </div>
+                        )}
+                      </div>
+                      <svg width="6" height="12" viewBox="0 0 6 12" fill="none">
+                        <path d="M1 1L5 6L1 11" stroke="#1A7498" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                    </div>
+                  ))}
+                </div>
+              ) : !isSearching ? (
+                <div
+                  style={{
+                    padding: '24px',
+                    textAlign: 'center',
+                    fontFamily: 'Roboto, sans-serif',
+                    fontSize: '14px',
+                    color: '#2A2A2A',
+                    opacity: 0.6,
+                  }}
+                >
+                  Inga egendomar hittades
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {/* Categories container */}
+          {!searchQuery.trim() && (
+            <div 
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'flex-start',
+                gap: '16px',
+                width: '100%',
+                maxWidth: 'calc(100% - 32px)',
+                margin: '0 auto'
+              }}
+            >
+              {/* Categories - with icons */}
+              {categories.map((category, index) => {
+                const IconComponent = category.icon
+                return (
+                  <Link
+                  key={index}
+                  to={category.path}
+                  className="w-full rounded-lg shadow-card animate-card"
+                  style={{
+                    background: '#FFFFFF',
+                    color: '#2A2A2A',
+                    width: '100%',
+                    textDecoration: 'none',
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    padding: '16px',
+                    boxSizing: 'border-box',
+                    borderRadius: '16px',
+                    boxShadow: '0px 4px 24px rgba(0, 0, 0, 0.08)',
+                    cursor: 'pointer',
+                    gap: '16px'
+                  }}
+                >
                     {/* Icon container with teal background */}
                     <div 
                       style={{ 
@@ -195,31 +350,31 @@ function Properties() {
                         alignItems: 'center', 
                         justifyContent: 'center',
                         background: '#DEEDF4',
-                        borderRadius: '8px'
+                        borderRadius: '12px'
                       }}
                     >
                       <IconComponent width={24} height={24} color="#146D7B" />
                     </div>
-                    <h3 
+                    <span 
                       style={{ 
+                        flex: 1,
                         color: '#2A2A2A',
-                        fontFamily: 'Roboto, sans-serif',
-                        fontWeight: 700,
+                        fontFamily: 'HK Grotesk Pro, Roboto, sans-serif',
+                        fontWeight: 600,
                         fontSize: '18px',
-                        lineHeight: '22px',
-                        margin: 0
+                        lineHeight: '22px'
                       }}
                     >
                       {category.title}
-                    </h3>
-                  </div>
-                  <svg width="6" height="12" viewBox="0 0 6 12" fill="none">
-                    <path d="M1 1L5 6L1 11" stroke="#2A2A2A" strokeWidth="2" strokeLinecap="round"/>
-                  </svg>
-                </Link>
-              )
-            })}
-          </div>
+                    </span>
+                    <svg width="6" height="12" viewBox="0 0 6 12" fill="none">
+                      <path d="M1 1L5 6L1 11" stroke="#146D7B" strokeWidth="2" strokeLinecap="round"/>
+                    </svg>
+                  </Link>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>

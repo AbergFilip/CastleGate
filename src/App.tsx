@@ -1,86 +1,96 @@
+import { lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
+import { PageTransition } from './components/PageTransition'
+import { ScrollToTop } from './components/ScrollToTop'
 import { ProtectedRoute } from './components/ProtectedRoute'
-import { OnboardingCheck } from './components/OnboardingCheck'
+import { FullScreenLoader } from './components/LoadingSpinner'
 import { useAuth } from './contexts/AuthContext'
-import Home from './pages/Home'
-import AuthLanding from './pages/AuthLanding'
-import ForgotPassword from './pages/ForgotPassword'
-import ResetPassword from './pages/ResetPassword'
-import BankIDAuth from './pages/BankIDAuth'
-import AuthCallback from './pages/AuthCallback'
-import Onboarding from './pages/Onboarding'
-import Profile from './pages/Profile'
-import Accounts from './pages/Accounts'
-import PrivateAccount from './pages/PrivateAccount'
-import StocksAndFunds from './pages/StocksAndFunds'
-import Offers from './pages/Offers'
-import Mailbox from './pages/Mailbox'
-import Settings from './pages/Settings'
-import Documents from './pages/Documents'
-import Properties from './pages/Properties'
-import Marketplace from './pages/Marketplace'
-import Requests from './pages/Requests'
-import Notifications from './pages/Notifications'
-import Network from './pages/Network'
-import ConnectBank from './pages/ConnectBank'
-import Cards from './pages/Cards'
-import PropertyHome from './pages/PropertyHome'
-import Assets from './pages/Assets'
-import Health from './pages/Health'
-import Contracts from './pages/Contracts'
-import PersonalDocuments from './pages/PersonalDocuments'
-import School, { EnglishPreschool } from './pages/School'
-import EnglishPreschoolAgreements from './pages/EnglishPreschoolAgreements'
-import Grades from './pages/Grades'
-import InCaseOfEmergency from './pages/Ice'
-import Inventories from './pages/Inventories'
-import InventoryItemBigChill from './pages/InventoryItemBigChill'
-import InventoryReceipt from './pages/InventoryReceipt'
-import InventoryFaultReport from './pages/InventoryFaultReport'
-import InventoryReceiptOffers from './pages/InventoryReceiptOffers'
-import Vehicles from './pages/Vehicles'
-import VehicleVolvoXC90 from './pages/VehicleVolvoXC90'
-import Boats from './pages/Boats'
-import BoatAquador26HT from './pages/BoatAquador26HT'
-import Insurances from './pages/Insurances'
-import HomeInsurance from './pages/HomeInsurance'
+import { preloadAllRoutes } from './lib/route-preloader'
+import { LinkPrefetcher } from './components/LinkPrefetcher'
+
+const Home = lazy(() => import('./pages/Home'))
+const Onboarding = lazy(() => import('./pages/Onboarding'))
+const AuthLanding = lazy(() => import('./pages/AuthLanding'))
+const ForgotPassword = lazy(() => import('./pages/ForgotPassword'))
+const ResetPassword = lazy(() => import('./pages/ResetPassword'))
+const BankIDAuth = lazy(() => import('./pages/BankIDAuth'))
+const AuthCallback = lazy(() => import('./pages/AuthCallback'))
+const Profile = lazy(() => import('./pages/Profile'))
+const Accounts = lazy(() => import('./pages/Accounts'))
+const Invoices = lazy(() => import('./pages/Invoices'))
+const Receipts = lazy(() => import('./pages/Receipts'))
+const PrivateAccount = lazy(() => import('./pages/PrivateAccount'))
+const StocksAndFunds = lazy(() => import('./pages/StocksAndFunds'))
+const Loans = lazy(() => import('./pages/Loans'))
+const Offers = lazy(() => import('./pages/Offers'))
+const Mailbox = lazy(() => import('./pages/Mailbox'))
+const Settings = lazy(() => import('./pages/Settings'))
+const Documents = lazy(() => import('./pages/Documents'))
+const Properties = lazy(() => import('./pages/Properties'))
+const Marketplace = lazy(() => import('./pages/Marketplace'))
+const Requests = lazy(() => import('./pages/Requests'))
+const Notifications = lazy(() => import('./pages/Notifications'))
+const Network = lazy(() => import('./pages/Network'))
+const UserProfile = lazy(() => import('./pages/UserProfile'))
+const ConnectBank = lazy(() => import('./pages/ConnectBank'))
+const ConnectBankCallback = lazy(() => import('./pages/ConnectBankCallback'))
+const Cards = lazy(() => import('./pages/Cards'))
+const ConnectCards = lazy(() => import('./pages/ConnectCards'))
+const ConnectLoans = lazy(() => import('./pages/ConnectLoans'))
+const ConnectProperties = lazy(() => import('./pages/ConnectProperties'))
+const PropertyHome = lazy(() => import('./pages/PropertyHome'))
+const Assets = lazy(() => import('./pages/Assets'))
+const Pension = lazy(() => import('./pages/Pension'))
+const OrangeaKuvertet = lazy(() => import('./pages/OrangeaKuvertet'))
+const Pensionsforsakringar = lazy(() => import('./pages/Pensionsforsakringar'))
+const Abonnemang = lazy(() => import('./pages/Abonnemang'))
+const TeliaKundkonto = lazy(() => import('./pages/TeliaKundkonto'))
+const AbonnemangDetail = lazy(() => import('./pages/AbonnemangDetail'))
+const AbonnemangKvitto = lazy(() => import('./pages/AbonnemangKvitto'))
+const AbonnemangProviderPlaceholder = lazy(() => import('./pages/AbonnemangProviderPlaceholder'))
+const SkatterDeklaration = lazy(() => import('./pages/SkatterDeklaration'))
+const DeklarationDetail = lazy(() => import('./pages/DeklarationDetail'))
+const Kuponger = lazy(() => import('./pages/Kuponger'))
+const Health = lazy(() => import('./pages/Health'))
+const Contracts = lazy(() => import('./pages/Contracts'))
+const PersonalDocuments = lazy(() => import('./pages/PersonalDocuments'))
+const School = lazy(() => import('./pages/School'))
+const EnglishPreschool = lazy(() => import('./pages/School').then(m => ({ default: m.EnglishPreschool })))
+const EnglishPreschoolAgreements = lazy(() => import('./pages/EnglishPreschoolAgreements'))
+const Grades = lazy(() => import('./pages/Grades'))
+const InCaseOfEmergency = lazy(() => import('./pages/Ice'))
+const Inventories = lazy(() => import('./pages/Inventories'))
+const InventoryItemBigChill = lazy(() => import('./pages/InventoryItemBigChill'))
+const InventoryReceipt = lazy(() => import('./pages/InventoryReceipt'))
+const InventoryFaultReport = lazy(() => import('./pages/InventoryFaultReport'))
+const InventoryReceiptOffers = lazy(() => import('./pages/InventoryReceiptOffers'))
+const Vehicles = lazy(() => import('./pages/Vehicles'))
+const VehicleVolvoXC90 = lazy(() => import('./pages/VehicleVolvoXC90'))
+const Boats = lazy(() => import('./pages/Boats'))
+const BoatAquador26HT = lazy(() => import('./pages/BoatAquador26HT'))
+const Insurances = lazy(() => import('./pages/Insurances'))
+const HomeInsurance = lazy(() => import('./pages/HomeInsurance'))
 
 function App() {
   const { user, loading } = useAuth()
 
-  // Visa loading medan vi kontrollerar auth state
+  useEffect(() => {
+    if (!loading && user) {
+      preloadAllRoutes()
+    }
+  }, [loading, user])
+
   if (loading) {
-    return (
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          minHeight: '100vh',
-          backgroundColor: '#F5F5F5',
-        }}
-      >
-        <div style={{ textAlign: 'center' }}>
-          <div
-            style={{
-              width: '40px',
-              height: '40px',
-              border: '4px solid #E6E6E6',
-              borderTop: '4px solid #146D7B',
-              borderRadius: '50%',
-              animation: 'spin 1s linear infinite',
-              margin: '0 auto 16px',
-            }}
-          />
-          <p style={{ color: '#4F4F4F', fontSize: '16px' }}>Laddar...</p>
-        </div>
-      </div>
-    )
+    return <FullScreenLoader />
   }
 
   return (
     <Layout>
+      <ScrollToTop />
+      <LinkPrefetcher />
+      <PageTransition>
+      <Suspense fallback={null}>
       <Routes>
         <Route
           path="/"
@@ -103,20 +113,18 @@ function App() {
           element={<AuthCallback />}
         />
         <Route
-          path="/onboarding"
+          path="/home"
           element={
             <ProtectedRoute>
-              <Onboarding />
+              <Home />
             </ProtectedRoute>
           }
         />
         <Route
-          path="/home"
+          path="/onboarding"
           element={
             <ProtectedRoute>
-              <OnboardingCheck>
-                <Home />
-              </OnboardingCheck>
+              <Onboarding />
             </ProtectedRoute>
           }
         />
@@ -137,6 +145,22 @@ function App() {
           }
         />
         <Route
+          path="/invoices"
+          element={
+            <ProtectedRoute>
+              <Invoices />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/receipts"
+          element={
+            <ProtectedRoute>
+              <Receipts />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/connect-bank"
           element={
             <ProtectedRoute>
@@ -145,7 +169,15 @@ function App() {
           }
         />
         <Route
-          path="/accounts/privatkonto"
+          path="/connect-bank/callback"
+          element={
+            <ProtectedRoute>
+              <ConnectBankCallback />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/accounts/:accountId"
           element={
             <ProtectedRoute>
               <PrivateAccount />
@@ -161,6 +193,22 @@ function App() {
           }
         />
         <Route
+          path="/accounts/loans"
+          element={
+            <ProtectedRoute>
+              <Loans />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/connect-loans"
+          element={
+            <ProtectedRoute>
+              <ConnectLoans />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/accounts/assets"
           element={
             <ProtectedRoute>
@@ -169,10 +217,106 @@ function App() {
           }
         />
         <Route
+          path="/pension"
+          element={
+            <ProtectedRoute>
+              <Pension />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/pension/orange-kuvert"
+          element={
+            <ProtectedRoute>
+              <OrangeaKuvertet />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/pension/forsakringar"
+          element={
+            <ProtectedRoute>
+              <Pensionsforsakringar />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/abonnemang"
+          element={
+            <ProtectedRoute>
+              <Abonnemang />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/abonnemang/telia"
+          element={
+            <ProtectedRoute>
+              <TeliaKundkonto />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/abonnemang/telia/12gb"
+          element={
+            <ProtectedRoute>
+              <AbonnemangDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/abonnemang/telia/kvitto/:receiptId"
+          element={
+            <ProtectedRoute>
+              <AbonnemangKvitto />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/abonnemang/:providerId"
+          element={
+            <ProtectedRoute>
+              <AbonnemangProviderPlaceholder />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/skatter"
+          element={
+            <ProtectedRoute>
+              <SkatterDeklaration />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/skatter/deklaration/:year"
+          element={
+            <ProtectedRoute>
+              <DeklarationDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/kuponger"
+          element={
+            <ProtectedRoute>
+              <Kuponger />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/cards"
           element={
             <ProtectedRoute>
               <Cards />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/connect-cards"
+          element={
+            <ProtectedRoute>
+              <ConnectCards />
             </ProtectedRoute>
           }
         />
@@ -385,6 +529,14 @@ function App() {
           }
         />
         <Route
+          path="/connect-properties"
+          element={
+            <ProtectedRoute>
+              <ConnectProperties />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/property-home"
           element={
             <ProtectedRoute>
@@ -424,10 +576,19 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/user/:userId"
+          element={
+            <ProtectedRoute>
+              <UserProfile />
+            </ProtectedRoute>
+          }
+        />
       </Routes>
+      </Suspense>
+      </PageTransition>
     </Layout>
   )
 }
 
 export default App
-

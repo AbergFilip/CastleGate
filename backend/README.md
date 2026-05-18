@@ -1,179 +1,52 @@
-# BankID Backend Server
+# CastleGate Backend
 
-Backend-server för BankID-autentisering med Supabase-integration.
+Detta är backend-systemet för CastleGate B2C/B2B plattformen. Systemet är byggt med NestJS och använder Supabase som databas.
 
-## Konfiguration
+## Funktioner
 
-### 1. Skapa `.env`-fil
+### Kärnfunktionalitet
+- **IAM (Identity & Access Management):**
+  - Stöd för både B2C (BankID) och B2B (OIDC/Azure AD)
+  - RBAC (Role-Based Access Control)
+  - B2B/B2C-separation
+- **Ekonomi:**
+  - Bankkonton, Kort, Investeringar, Transaktioner
+- **Tillgångar:**
+  - Fastigheter, Fordon, Båtar, Försäkringar
+- **Kommunikation:**
+  - Meddelanden, Notiser, Marknadsplats (Requests/Offers)
+- **Nätverk:**
+  - Vänlistor och kontakter
 
-Skapa en `.env`-fil i `backend/`-mappen med följande innehåll:
+### Dokumentation
+- [IAM Implementation Guide](docs/IAM_IMPLEMENTATION.md) - Detaljer om säkerhet och behörighet.
+- [API Dokumentation](http://localhost:3001/api/docs) - Swagger dokumentation (när servern körs).
 
-```env
-# Supabase Configuration
-# Hämta dessa värden från Supabase Dashboard -> Settings -> API
-SUPABASE_URL=your_supabase_url_here
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
+## Komma igång
 
-# Server Configuration
-PORT=3001
+### 1. Konfiguration
+Skapa en `.env`-fil baserad på `example.env` (se IAM guiden för variabler).
 
-# BankID Configuration
-# För produktion, sätt till true och konfigurera certifikat
-# För testmiljö, använd false (använder test-certifikat automatiskt)
-BANKID_PRODUCTION=false
-```
-
-### 2. Hämta Supabase-credentials
-
-1. Gå till [Supabase Dashboard](https://app.supabase.com)
-2. Välj ditt projekt
-3. Gå till **Settings** → **API**
-4. Kopiera:
-   - **Project URL** → `SUPABASE_URL`
-   - **service_role** key (⚠️ **ADMIN KEY** - håll den hemlig!) → `SUPABASE_SERVICE_ROLE_KEY`
-
-### 3. Konfigurera Supabase Database
-
-Kör SQL-scriptet `supabase_setup.sql` i Supabase SQL Editor:
-
-1. Gå till Supabase Dashboard → **SQL Editor**
-2. Skapa en ny query
-3. Kopiera innehållet från `supabase_setup.sql`
-4. Kör scriptet
-
-Detta skapar:
-- `users`-tabell med BankID-integration
-- RLS policies för säkerhet
-- Automatiska triggers för user-profil skapande
-
-## Installation
-
+### 2. Installation
 ```bash
 npm install
 ```
 
-## Kör servern
+### 3. Databas
+Kör migrationsskripten i Supabase SQL Editor:
+1. `supabase_setup.sql`
+2. `create_rbac_tables.sql`
+3. SQL-filer för moduler (finns i roten av backend-mappen)
 
-### Development (med auto-reload)
+### 4. Starta servern
 ```bash
-npm run dev
+# Development
+npm run start:dev
+
+# Production
+npm run start:prod
 ```
 
-### Production
-```bash
-npm start
-```
-
-Servern startar på `http://localhost:3001` (eller porten angiven i `.env`).
-
-## API Endpoints
-
-### `GET /`
-Hälsning och API-dokumentation
-
-### `GET /api/bankid/ip`
-Hämta användarens IP-adress
-
-### `POST /api/bankid/auth`
-Initiera BankID-autentisering
-
-**Request:**
-```json
-{
-  "personalNumber": "199001011234", // Valfritt
-  "endUserIp": "127.0.0.1"
-}
-```
-
-**Response:**
-```json
-{
-  "orderRef": "...",
-  "autoStartToken": "...",
-  "qrStartToken": "...",
-  "qrStartSecret": "..."
-}
-```
-
-### `POST /api/bankid/collect`
-Kontrollera status för BankID-autentisering
-
-**Request:**
-```json
-{
-  "orderRef": "..."
-}
-```
-
-### `POST /api/bankid/signup`
-Skapa konto med BankID
-
-**Request:**
-```json
-{
-  "personalNumber": "199001011234",
-  "name": "Förnamn Efternamn",
-  "email": "user@example.com" // Valfritt
-}
-```
-
-### `POST /api/bankid/signin`
-Logga in med BankID
-
-**Request:**
-```json
-{
-  "personalNumber": "199001011234",
-  "name": "Förnamn Efternamn"
-}
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "userId": "...",
-  "email": "user@example.com",
-  "name": "Förnamn Efternamn",
-  "accessToken": "...", // JWT token för session
-  "refreshToken": "..." // Refresh token
-}
-```
-
-### `POST /api/bankid/qr`
-Generera QR-kod för BankID
-
-### `POST /api/bankid/link`
-Koppla BankID till befintligt konto
-
-### `GET /api/bankid/status`
-Kontrollera BankID-status
-
-### `POST /api/bankid/unlink`
-Ta bort BankID-koppling
-
-## Felsökning
-
-### Backend startar inte
-- Kontrollera att alla dependencies är installerade: `npm install`
-- Kontrollera att porten inte är upptagen
-- Kontrollera att `.env`-filen finns och är korrekt konfigurerad
-
-### BankID-autentisering fungerar inte
-- Kontrollera att BankID-certifikat finns i `node_modules/bankid/cert/`
-- För testmiljö, använd `BANKID_PRODUCTION=false`
-- Kontrollera att backend-servern körs på rätt port
-
-### Supabase-integration fungerar inte
-- Kontrollera att `.env`-filen har korrekta credentials
-- Kontrollera att `users`-tabellen är skapad i Supabase
-- Kontrollera RLS policies i Supabase Dashboard
-
-## Säkerhet
-
-⚠️ **VIKTIGT:**
-- Dela **ALDRIG** `SUPABASE_SERVICE_ROLE_KEY` publikt
-- Använd `.env`-filen och lägg den i `.gitignore`
-- I produktion, använd säkra miljövariabler
-- Aktivera RLS policies i Supabase för säkerhet
-
+Servern startar normalt på port 3001.
+API:t är tillgängligt under `/api`.
+Swagger docs under `/api/docs`.

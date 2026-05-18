@@ -62,15 +62,16 @@ function Navbar() {
       <nav 
         style={{
           position: 'fixed',
-          width: '375px',
-          maxWidth: '100%',
+          width: '100%',
+          maxWidth: '430px',
           height: '87px',
           left: '50%',
           transform: 'translateX(-50%)',
           bottom: '0px',
           background: '#FFFFFF',
           boxShadow: '0px -2px 24px rgba(0, 0, 0, 0.16)',
-          zIndex: 50
+          zIndex: 50,
+          paddingBottom: 'env(safe-area-inset-bottom, 0)',
         }}
         className="flex justify-around items-center"
       >
@@ -88,6 +89,7 @@ function Navbar() {
                 to={item.path}
                 className="flex flex-col items-center justify-center flex-1 h-full"
                 style={{ color: textColor }}
+                aria-label={item.label}
               >
                 <div className="flex items-center justify-center">
                   <IconComponent />
@@ -102,6 +104,7 @@ function Navbar() {
                 onClick={handleMenuClick}
                 className="flex flex-col items-center justify-center flex-1 h-full"
                 style={{ color: textColor }}
+                aria-label={item.label}
               >
                 <div className="flex items-center justify-center">
                   <IconComponent />
