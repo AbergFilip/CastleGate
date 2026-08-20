@@ -42,8 +42,11 @@ gh repo create castlegate --private --source=. --push
 
 1. [app.supabase.com](https://app.supabase.com) → **New project** → `castlegate-staging`.
 2. Under **Settings → Database → Connection string**:
-   - Kopiera **URI** under fliken **Session pooler** (port `6543`).
-     → detta blir `DATABASE_URL` i backenden. **Använd INTE Direct connection (5432) på Vercel** – serverless öppnar nya connections vid varje cold-start och exhauster poolen på 5432.
+   - Välj **Session pooler** (inte Direct connection, inte Transaction pooler) och kopiera **Shared pooler-URI:n**.
+     → detta blir `DATABASE_URL` i backenden.
+   - **Varför just Session pooler?** Direct connection (host `db.<ref>.supabase.co`) fungerar från en persistent server men serverless öppnar nya anslutningar per cold-start och exhauster poolen. Transaction pooler stöder inte TypeORM:s prepared statements (du får "prepared statement already exists"). Session pooler kombinerar det bästa: skalar för serverless och funkar med TypeORM utan kodändringar.
+   - URL:en ser ut typ `postgresql://postgres.<ref>:<lösenord>@aws-X-<region>.pooler.supabase.com:5432/postgres`. Notera att användarnamnet är `postgres.<ref>` (med punkt).
+   - Om ditt lösenord innehåller specialtecken (`@`, `#`, `%` osv.) – [percent-encoda](https://www.urlencoder.org/) dem först.
 3. Under **Settings → API**:
    - Kopiera **Project URL** → `SUPABASE_URL` / `VITE_SUPABASE_URL`
    - Kopiera **anon public key** → `VITE_SUPABASE_ANON_KEY`
@@ -94,7 +97,7 @@ Under **Environment Variables**, lägg in (Production + Preview):
 | Namn                          | Värde                                                                             |
 | ----------------------------- | --------------------------------------------------------------------------------- |
 | `NODE_ENV`                    | `production`                                                                      |
-| `DATABASE_URL`                | Supabase Session Pooler-URL (port 6543)                                           |
+| `DATABASE_URL`                | Supabase **Session pooler** URI (`postgres.<ref>@...pooler.supabase.com:5432`)   |
 | `SUPABASE_URL`                | `https://<staging>.supabase.co`                                                   |
 | `SUPABASE_SERVICE_ROLE_KEY`   | service_role key från Supabase                                                    |
 | `ACCESS_TOKEN_SECRET`         | slumpad 96-tecken sträng (se steg 1.4)                                            |
@@ -203,7 +206,8 @@ ett av två sätt:
 | ------- | ------------ |
 | Blank sida, 404 vid refresh av `/profile` | SPA-rewrite saknas – dubbelkolla att `vercel.json` finns i repo-roten |
 | API-anrop misslyckas med CORS-fel | `FRONTEND_URL` i backend matchar inte Vercel-URL:en exakt (inkl. `https://`, inget trailing `/`). Redeploy backend efter ändring. |
-| Backend svarar 500 vid första request | Cold-start-timeout eller DB-connection failure. Kolla **Vercel → Functions → Logs**. Vanligast: `DATABASE_URL` pekar mot 5432 istället för pooler-porten 6543. |
+| Backend svarar 500 vid första request | Cold-start-timeout eller DB-connection failure. Kolla **Vercel → Functions → Logs**. Vanligast: `DATABASE_URL` pekar mot Direct connection (`db.<ref>.supabase.co`) istället för Session pooler (`aws-X-<region>.pooler.supabase.com`). |
+| `prepared statement "S_1" already exists` | Du använder **Transaction pooler** istället för Session pooler. TypeORM funkar inte i transaction-mode. Byt till Session pooler-URI:n. |
 | "Invalid login credentials" | Kontot finns inte i Supabase, eller email-confirmation krävs och användaren har inte klickat länken |
 | `Failed to fetch` vid inloggning | Backend är nere / cold start pågår. Vänta 5 s och försök igen. |
 | Login funkar men API returnerar 401 | Backend accepterar inte Supabase-JWT. Verifiera att `SUPABASE_URL` och `SUPABASE_SERVICE_ROLE_KEY` i backend matchar samma Supabase-projekt som frontenden |
@@ -228,7 +232,7 @@ Innan du delar länken publikt:
 | Aspekt | Vad som händer |
 | ------ | -------------- |
 | **Cold start** | Första request efter idle tar 2–5 s. Vanligt. |
-| **DB-pool** | Använd Supabase Session Pooler (6543), inte 5432. Annars: "too many connections". |
+| **DB-pool** | Använd Supabase Session pooler (`aws-X.pooler.supabase.com:5432`), inte Direct connection (`db.<ref>.supabase.co:5432`). Annars: "too many connections" vid cold-starts. |
 | **Rate limiting** | Nuvarande in-memory implementation nollställs per lambda-instans. OK för test, byt till Redis/Upstash för produktion. |
 | **Långlivade requests** | Max 30 s (satt i `functions.maxDuration`). BankID-polling gör korta requests, så det är OK. |
 | **mTLS** | `MTLS_ENABLED=true` fungerar inte – Vercel terminerar TLS själv. Håll `false`. |
