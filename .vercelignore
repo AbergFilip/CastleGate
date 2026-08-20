@@ -1,0 +1,27 @@
+# Vercel deployar bara frontend. Hoppa över allt annat.
+
+# Backend (deployas separat: Railway/Render/Fly.io/Azure)
+backend/
+
+# Byggresultat (Vercel bygger själv)
+dist/
+node_modules/
+
+# Design-assets & lokala scripts – behövs ej i produktion
+designs/
+copy-designs.ps1
+start-dev.ps1
+start.bat
+
+# Interna dokument – behövs ej på servern
+AUTH_STRATEGY.md
+ENV_SETUP.md
+INTEGRATIONER_OCH_KOSTNADER.md
+NETWORK_IMPLEMENTATION_PLAN.md
+NETWORK_IMPLEMENTATION_STATUS.md
+supabase_onboarding_update.sql
+
+# Env-filer (aldrig committade, men extra försäkring)
+.env
+.env.local
+.env.*.local
