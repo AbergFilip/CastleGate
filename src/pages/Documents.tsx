@@ -198,7 +198,8 @@ function Documents() {
         style={{
           position: 'relative',
           zIndex: 2,
-          padding: '220px 16px 120px',
+          marginTop: '220px',
+          padding: '0 16px 120px',
           display: 'flex',
           flexDirection: 'column',
           gap: '16px',
