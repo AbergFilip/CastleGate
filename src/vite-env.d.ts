@@ -11,6 +11,7 @@ interface ImportMetaEnv {
   readonly VITE_SESSION_TIMEOUT_MINUTES: string
   readonly VITE_SKIP_BANKID?: string
   readonly VITE_ENABLE_TEST_DATA_TOOLS?: string
+  readonly VITE_ENABLE_PASSWORD_AUTH?: string
 }
 
 interface ImportMeta {

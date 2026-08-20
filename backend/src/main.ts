@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, INestApplication } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { join } from 'path';
 import { readFileSync } from 'fs';
@@ -11,7 +12,8 @@ import { ApiVersionInterceptor } from './common/interceptors/api-version.interce
 import { correlationIdMiddleware } from './common/middleware/correlation-id.middleware';
 import { rateLimitMiddleware } from './common/middleware/rate-limit.middleware';
 
-// Ladda .env från arbetsmappen (backend/ när du kör "npm start" i backend) eller från dist/../ 
+// Ladda .env från arbetsmappen (backend/ när du kör "npm start" i backend) eller från dist/../
+// I serverless (Vercel) läses env från process.env direkt och dessa filer finns inte – tyst fallback.
 const envPath = join(process.cwd(), '.env');
 const envPathFromDist = join(__dirname, '..', '.env');
 dotenvConfig({ path: envPath });
@@ -38,6 +40,71 @@ function ensureTinkEnvFromFile(): void {
 }
 ensureTinkEnvFromFile();
 
+/**
+ * Konfigurerar en Nest-app med samma pipeline i alla miljöer.
+ * Bryts ut från bootstrap() så samma logik kan användas av både
+ * det lokala HTTP-serverbygget (`main.ts`) och Vercels serverless-adapter
+ * (`api/index.ts`), utan att duplicera CORS, helmet, filters etc.
+ */
+export function configureApp(app: INestApplication): void {
+  const expressApp = app.getHttpAdapter().getInstance();
+  // Express v5 (NestJS 11): restore extended query parser for nested objects/arrays
+  expressApp.set('query parser', 'extended');
+
+  // CORS – stödjer kommaseparerad lista av origins via FRONTEND_URL
+  const rawOrigins = process.env.FRONTEND_URL || 'http://localhost:5173';
+  const origins = rawOrigins.split(',').map((o) => o.trim()).filter(Boolean);
+  app.enableCors({
+    credentials: true,
+    origin: origins.length === 1 ? origins[0] : origins,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Accept', 'Authorization', 'X-Correlation-ID'],
+    optionsSuccessStatus: 204,
+  });
+
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false,
+      crossOriginResourcePolicy: false,
+    })
+  );
+
+  app.use(correlationIdMiddleware);
+  app.use(rateLimitMiddleware);
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    })
+  );
+
+  app.useGlobalFilters(new HttpExceptionFilter());
+  app.useGlobalInterceptors(new ApiVersionInterceptor());
+
+  app.setGlobalPrefix('api/v1');
+
+  const config = new DocumentBuilder()
+    .setTitle('CastleGate API')
+    .setDescription('CastleGate Backend API - Digital Life Management Platform')
+    .setVersion(process.env.API_VERSION || '1.0.0')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'Auth0 access token (roles: admin, user)',
+      },
+      'Auth0'
+    )
+    .addSecurityRequirements('Auth0')
+    .build();
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/docs', app, document);
+}
+
 async function bootstrap() {
   const mtlsEnabled = process.env.MTLS_ENABLED === 'true';
   let httpsOptions: any | undefined;
@@ -61,70 +128,12 @@ async function bootstrap() {
     };
   }
 
-  const app = await NestFactory.create(AppModule, httpsOptions ? { httpsOptions } : {});
-
-  // Express v5 (NestJS 11): restore extended query parser for nested objects/arrays
-  const expressApp = app.getHttpAdapter().getInstance();
-  expressApp.set('query parser', 'extended');
-
-  // Enable CORS first (must be before other middleware so preflight OPTIONS works)
-  app.enableCors({
-    credentials: true,
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Accept', 'Authorization', 'X-Correlation-ID'],
-    optionsSuccessStatus: 204,
-  });
-
-  // Security headers (after CORS to avoid conflicts)
-  app.use(helmet({
-    contentSecurityPolicy: false,
-    crossOriginEmbedderPolicy: false,
-    crossOriginResourcePolicy: false,
-  }));
-
-  // Correlation/trace ID middleware
-  app.use(correlationIdMiddleware);
-
-  // Basic rate limiting (per-IP, in-memory)
-  app.use(rateLimitMiddleware);
-
-  // Global validation pipe
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    })
+  const app = await NestFactory.create<NestExpressApplication>(
+    AppModule,
+    httpsOptions ? { httpsOptions } : {}
   );
 
-  // Global exception filter
-  app.useGlobalFilters(new HttpExceptionFilter());
-
-  // Global interceptors
-  app.useGlobalInterceptors(new ApiVersionInterceptor());
-
-  // API prefix with version
-  app.setGlobalPrefix('api/v1');
-
-  // Swagger documentation
-  const config = new DocumentBuilder()
-    .setTitle('CastleGate API')
-    .setDescription('CastleGate Backend API - Digital Life Management Platform')
-    .setVersion(process.env.API_VERSION || '1.0.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        description: 'Auth0 access token (roles: admin, user)',
-      },
-      'Auth0'
-    )
-    .addSecurityRequirements('Auth0')
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  configureApp(app);
 
   const port = process.env.PORT || 3001;
   await app.listen(port);
@@ -135,5 +144,8 @@ async function bootstrap() {
   );
 }
 
-bootstrap();
-
+// Kör bootstrap endast när main.ts körs direkt (dvs. inte i serverless).
+// Vercels serverless-adapter importerar bara `configureApp` och skapar sin egen instans.
+if (require.main === module) {
+  bootstrap();
+}

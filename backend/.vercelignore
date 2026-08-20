@@ -1,0 +1,35 @@
+# Endast NestJS-backenden ska med. Uteslut resten.
+
+# Byggartefakter (byggs på Vercel)
+dist/
+node_modules/
+coverage/
+logs/
+
+# Env-filer (aldrig committade, men extra försäkring)
+.env
+.env.local
+.env.*.local
+tink.env
+
+# BankID-certifikat – kritiskt att inte deploya
+certificates/
+*.p12
+*.pem
+*.pfx
+*.key
+*.crt
+
+# Interna docs – behövs inte i produktion
+*.md
+!README.md
+
+# Dev-scripts
+kill-server.bat
+kill-server.ps1
+setup-env.ps1
+setup-bankid-test.ps1
+docker-compose.yml
+scripts/
+docs/
+sql/
